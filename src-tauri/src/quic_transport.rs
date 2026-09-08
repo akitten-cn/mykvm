@@ -4,7 +4,7 @@ use std::{
     net::{SocketAddr, ToSocketAddrs},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
         mpsc, Arc, Mutex, RwLock,
     },
     thread,
@@ -28,7 +28,7 @@ use quinn::{
 };
 use tokio::sync::mpsc as tokio_mpsc;
 
-use crate::protocol_v2::{self, ControlDecoder, ControlFrame};
+use crate::protocol_v2::{self, ControlDecoder, ControlFrame, CriticalDecoder, CriticalFrame};
 
 pub const PROTOCOL_VERSION: u16 = 1;
 
@@ -53,6 +53,10 @@ const MAX_CONTROL_CONNECTIONS: usize = 8;
 const CONTROL_QUEUE_FRAMES: usize = 64;
 const MAX_CONTROL_FRAMES_PER_SECOND: u32 = 128;
 const CONTROL_PREFACE: &[u8; 4] = b"MKC2";
+const INPUT_PREFACE: &[u8; 4] = b"MKI2";
+const INPUT_QUEUE_FRAMES: usize = 256;
+const INPUT_QUEUE_BYTES: usize = 256 * 1024;
+const MAX_INPUT_CONNECTIONS: usize = 8;
 
 const ALPN_V2: &[u8] = b"mykvm-local/2";
 
@@ -62,6 +66,7 @@ type ControlHandler =
     Arc<dyn Fn(ControlFrame, AuthenticatedPeer) -> Option<ControlFrame> + Send + Sync + 'static>;
 type OutboundControlHandler =
     Arc<dyn Fn(ControlFrame) -> Option<ControlFrame> + Send + Sync + 'static>;
+type InputHandler = Arc<dyn Fn(CriticalFrame, AuthenticatedPeer) -> bool + Send + Sync + 'static>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PeerRole {
@@ -210,6 +215,62 @@ pub struct ControlPeer {
 #[derive(Clone)]
 pub struct ControlHandle {
     outgoing: tokio_mpsc::Sender<ControlFrame>,
+}
+
+struct QueuedInput {
+    bytes: Vec<u8>,
+    budget: Arc<AtomicUsize>,
+}
+
+impl Drop for QueuedInput {
+    fn drop(&mut self) {
+        self.budget.fetch_sub(self.bytes.len(), Ordering::AcqRel);
+    }
+}
+
+#[derive(Clone)]
+pub struct InputHandle {
+    outgoing: tokio_mpsc::Sender<QueuedInput>,
+    budget: Arc<AtomicUsize>,
+}
+
+impl InputHandle {
+    pub fn try_send(&self, frame: &CriticalFrame) -> Result<(), String> {
+        let bytes = protocol_v2::encode_critical(frame)
+            .map_err(|error| format!("invalid critical input frame: {error:?}"))?;
+        reserve_input_bytes(&self.budget, bytes.len())?;
+        self.outgoing
+            .try_send(QueuedInput {
+                bytes,
+                budget: Arc::clone(&self.budget),
+            })
+            .map_err(|error| match error {
+                tokio_mpsc::error::TrySendError::Full(_) => {
+                    format!("critical input queue is full ({INPUT_QUEUE_FRAMES} frames)")
+                }
+                tokio_mpsc::error::TrySendError::Closed(_) => {
+                    "critical input stream is closed".into()
+                }
+            })
+    }
+}
+
+fn reserve_input_bytes(budget: &AtomicUsize, added: usize) -> Result<(), String> {
+    let mut current = budget.load(Ordering::Acquire);
+    loop {
+        let next = current
+            .checked_add(added)
+            .ok_or_else(|| "critical input byte budget overflow".to_string())?;
+        if next > INPUT_QUEUE_BYTES {
+            return Err(format!(
+                "critical input byte budget exceeded ({INPUT_QUEUE_BYTES} bytes)"
+            ));
+        }
+        match budget.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => return Ok(()),
+            Err(observed) => current = observed,
+        }
+    }
 }
 
 impl ControlHandle {
@@ -402,6 +463,21 @@ impl TransportHandle {
             .map_err(|_| "QUIC transport is stopped".to_string())?;
         Ok(ControlHandle { outgoing })
     }
+
+    pub fn open_input(&self, peer: ControlPeer) -> Result<InputHandle, String> {
+        if peer.role != PeerRole::Receiver {
+            return Err("critical input stream target must be a trusted receiver".into());
+        }
+        let (outgoing, receiver) = tokio_mpsc::channel(INPUT_QUEUE_FRAMES);
+        let budget = Arc::new(AtomicUsize::new(0));
+        self.commands
+            .send(TransportCommand::OpenInput {
+                peer,
+                outgoing: receiver,
+            })
+            .map_err(|_| "QUIC transport is stopped".to_string())?;
+        Ok(InputHandle { outgoing, budget })
+    }
 }
 
 enum TransportCommand {
@@ -420,6 +496,10 @@ enum TransportCommand {
         responses: tokio_mpsc::Sender<ControlFrame>,
         on_frame: OutboundControlHandler,
     },
+    OpenInput {
+        peer: ControlPeer,
+        outgoing: tokio_mpsc::Receiver<QueuedInput>,
+    },
     Shutdown,
 }
 
@@ -436,6 +516,7 @@ pub fn start(
     on_datagram: DatagramHandler,
     on_stream: StreamHandler,
     on_control: ControlHandler,
+    on_input: InputHandler,
 ) -> Result<TransportHandle, String> {
     // Load (or create-and-persist) this machine's transport identity *before*
     // spawning the runtime thread so a stable public key is reused across
@@ -472,6 +553,7 @@ pub fn start(
                 on_datagram,
                 on_stream,
                 on_control,
+                on_input,
                 loop_health,
                 ready_tx,
             ));
@@ -513,6 +595,7 @@ async fn run_transport(
     on_datagram: DatagramHandler,
     on_stream: StreamHandler,
     on_control: ControlHandler,
+    on_input: InputHandler,
     health: HealthMap,
     ready_tx: mpsc::Sender<Result<ReadyTransport, String>>,
 ) {
@@ -539,6 +622,7 @@ async fn run_transport(
         on_datagram,
         on_stream,
         on_control,
+        on_input,
     );
 
     // The command loop must never await network progress: one dead peer's 2s
@@ -549,6 +633,7 @@ async fn run_transport(
     let connections: ConnectionMap = Arc::new(Mutex::new(HashMap::new()));
     let stream_slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_STREAMS));
     let control_slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONTROL_CONNECTIONS));
+    let input_slots = Arc::new(tokio::sync::Semaphore::new(MAX_INPUT_CONNECTIONS));
     while let Some(command) = commands.recv().await {
         match command {
             TransportCommand::SendDatagram { peer, payload } => {
@@ -620,6 +705,30 @@ async fn run_transport(
                     .await
                     {
                         log::warn!("QUIC control stream stopped: {error}");
+                    }
+                    drop(permit);
+                });
+            }
+            TransportCommand::OpenInput { peer, outgoing } => {
+                let Ok(permit) = Arc::clone(&input_slots).try_acquire_owned() else {
+                    continue;
+                };
+                let endpoint = endpoint.clone();
+                let identity = identity.clone();
+                let connections = Arc::clone(&connections);
+                let health = Arc::clone(&health);
+                tokio::spawn(async move {
+                    if let Err(error) = run_outbound_input(
+                        &endpoint,
+                        &identity,
+                        &connections,
+                        &health,
+                        peer,
+                        outgoing,
+                    )
+                    .await
+                    {
+                        log::warn!("QUIC critical input stream stopped: {error}");
                     }
                     drop(permit);
                 });
@@ -970,6 +1079,7 @@ fn spawn_accept_loop(
     on_datagram: DatagramHandler,
     on_stream: StreamHandler,
     on_control: ControlHandler,
+    on_input: InputHandler,
 ) {
     let generations = Arc::new(AtomicU64::new(1));
     tokio::spawn(async move {
@@ -978,6 +1088,7 @@ fn spawn_accept_loop(
             let on_datagram = Arc::clone(&on_datagram);
             let on_stream = Arc::clone(&on_stream);
             let on_control = Arc::clone(&on_control);
+            let on_input = Arc::clone(&on_input);
             let trust_store = trust_store.clone();
             let generation = generations.fetch_add(1, Ordering::Relaxed);
 
@@ -992,7 +1103,7 @@ fn spawn_accept_loop(
                                 on_datagram,
                             );
                         }
-                        spawn_stream_reader(connection, peer, on_stream, on_control);
+                        spawn_stream_reader(connection, peer, on_stream, on_control, on_input);
                     }
                     Err(error) => {
                         log::warn!("QUIC incoming connection failed from {remote}: {error}");
@@ -1050,17 +1161,21 @@ fn spawn_stream_reader(
     peer: ConnectionPeer,
     on_stream: StreamHandler,
     on_control: ControlHandler,
+    on_input: InputHandler,
 ) {
     let control_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let input_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
     tokio::spawn(async move {
         loop {
             match connection.accept_bi().await {
                 Ok((mut send, mut recv)) => {
                     let on_stream = Arc::clone(&on_stream);
                     let on_control = Arc::clone(&on_control);
+                    let on_input = Arc::clone(&on_input);
                     let peer = peer.clone();
                     let connection = connection.clone();
                     let control_active = Arc::clone(&control_active);
+                    let input_active = Arc::clone(&input_active);
                     tokio::spawn(async move {
                         let mut preface = [0_u8; 4];
                         if let Err(error) = recv.read_exact(&mut preface).await {
@@ -1086,6 +1201,26 @@ fn spawn_stream_reader(
                             control_active.store(false, Ordering::Release);
                             if let Err(error) = outcome {
                                 log::warn!("QUIC inbound control stream stopped: {error}");
+                            }
+                            let _ = send.finish();
+                            return;
+                        }
+                        if &preface == INPUT_PREFACE {
+                            let ConnectionPeer::Authenticated(authenticated) = peer else {
+                                let _ = send.finish();
+                                return;
+                            };
+                            if authenticated.role != PeerRole::Controller
+                                || input_active.swap(true, Ordering::AcqRel)
+                            {
+                                let _ = send.finish();
+                                return;
+                            }
+                            let outcome =
+                                run_inbound_input_stream(&mut recv, authenticated, on_input).await;
+                            input_active.store(false, Ordering::Release);
+                            if let Err(error) = outcome {
+                                log::warn!("QUIC inbound critical input stopped: {error}");
                             }
                             let _ = send.finish();
                             return;
@@ -1124,6 +1259,33 @@ fn spawn_stream_reader(
             }
         }
     });
+}
+
+async fn run_inbound_input_stream(
+    recv: &mut quinn::RecvStream,
+    peer: AuthenticatedPeer,
+    on_input: InputHandler,
+) -> Result<(), String> {
+    let mut decoder = CriticalDecoder::default();
+    loop {
+        let chunk = recv
+            .read_chunk(4096, true)
+            .await
+            .map_err(|error| format!("critical input read failed: {error}"))?;
+        let Some(chunk) = chunk else {
+            return decoder.finish().map_err(|error| {
+                format!("critical input stream ended with partial frame: {error:?}")
+            });
+        };
+        for frame in decoder
+            .push(&chunk.bytes)
+            .map_err(|error| format!("invalid critical input frame: {error:?}"))?
+        {
+            if !on_input(frame, peer.clone()) {
+                return Err("critical input handler rejected frame".into());
+            }
+        }
+    }
 }
 
 async fn run_inbound_control_stream(
@@ -1377,6 +1539,49 @@ async fn run_outbound_control(
             ))
         }
     }
+}
+
+async fn run_outbound_input(
+    endpoint: &Endpoint,
+    identity: &TransportIdentity,
+    connections: &ConnectionMap,
+    health: &HealthMap,
+    peer: ControlPeer,
+    mut outgoing: tokio_mpsc::Receiver<QueuedInput>,
+) -> Result<(), String> {
+    let key = peer_key(&peer.endpoint)?;
+    let existing = connections.lock().ok().and_then(|map| match map.get(&key) {
+        Some(ConnectionSlot::Ready(connection)) if connection.close_reason().is_none() => {
+            Some(connection.clone())
+        }
+        _ => None,
+    });
+    let connection = match existing {
+        Some(connection) => connection,
+        None => {
+            let connection = establish_connection(endpoint, identity, &peer.endpoint, &key).await?;
+            if let Ok(mut map) = connections.lock() {
+                map.insert(key.clone(), ConnectionSlot::Ready(connection.clone()));
+            }
+            record_peer_success(health, &peer.endpoint.addr);
+            connection
+        }
+    };
+    let (mut send, _recv) = connection
+        .open_bi()
+        .await
+        .map_err(|error| format!("failed to open critical input stream: {error}"))?;
+    send.write_all(INPUT_PREFACE)
+        .await
+        .map_err(|error| format!("failed to write critical input preface: {error}"))?;
+    while let Some(queued) = outgoing.recv().await {
+        send.write_all(&queued.bytes)
+            .await
+            .map_err(|error| format!("critical input write failed: {error}"))?;
+    }
+    send.finish()
+        .map_err(|error| format!("critical input finish failed: {error}"))?;
+    Ok(())
 }
 
 async fn read_outbound_control(
@@ -1717,6 +1922,7 @@ mod tests {
                 true
             }),
             Arc::new(|_, _| None),
+            Arc::new(|_, _| false),
         )
         .unwrap();
         let controller = start(
@@ -1732,6 +1938,7 @@ mod tests {
             Arc::new(|_, _| {}),
             Arc::new(|_, _| false),
             Arc::new(|_, _| None),
+            Arc::new(|_, _| false),
         )
         .unwrap();
 
@@ -1780,6 +1987,7 @@ mod tests {
             }),
             Arc::new(|_, _| false),
             Arc::new(|_, _| None),
+            Arc::new(|_, _| false),
         )
         .unwrap();
         let controller = start(
@@ -1789,6 +1997,7 @@ mod tests {
             Arc::new(|_, _| {}),
             Arc::new(|_, _| false),
             Arc::new(|_, _| None),
+            Arc::new(|_, _| false),
         )
         .unwrap();
         let peer = controller.peer(
@@ -1854,6 +2063,7 @@ mod tests {
                     .ok()
                     .flatten()
             }),
+            Arc::new(|_, _| false),
         )
         .unwrap();
         let controller = start(
@@ -1869,6 +2079,7 @@ mod tests {
             Arc::new(|_, _| {}),
             Arc::new(|_, _| false),
             Arc::new(|_, _| None),
+            Arc::new(|_, _| false),
         )
         .unwrap();
         let peer = controller
@@ -1954,5 +2165,123 @@ mod tests {
             enforce_control_rate(&mut started, &mut count, MAX_CONTROL_FRAMES_PER_SECOND).is_ok()
         );
         assert!(enforce_control_rate(&mut started, &mut count, 1).is_err());
+    }
+
+    #[test]
+    fn authenticated_input_stream_preserves_reliable_frame_order() {
+        let suffix = format!("{}-input", std::process::id());
+        let root = std::env::temp_dir().join(format!("mykvm-input-loopback-{suffix}"));
+        let controller_dir = root.join("controller");
+        let receiver_dir = root.join("receiver");
+        let controller_identity = load_or_create_identity(&controller_dir).unwrap();
+        let receiver_identity = load_or_create_identity(&receiver_dir).unwrap();
+        let port = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let (input_tx, input_rx) = mpsc::channel();
+        let receiver = start(
+            port,
+            receiver_dir,
+            TrustedPeerRegistry::new(vec![TrustedPeer {
+                peer_id: "controller-a".into(),
+                certificate: controller_identity.public_key,
+                role: PeerRole::Controller,
+                trust_revision: 1,
+            }])
+            .unwrap(),
+            Arc::new(|_, _| {}),
+            Arc::new(|_, _| false),
+            Arc::new(|_, _| None),
+            Arc::new(move |frame, peer| input_tx.send((frame, peer)).is_ok()),
+        )
+        .unwrap();
+        let controller = start(
+            port.saturating_add(64),
+            controller_dir,
+            TrustedPeerRegistry::new(vec![TrustedPeer {
+                peer_id: "receiver-a".into(),
+                certificate: receiver_identity.public_key,
+                role: PeerRole::Receiver,
+                trust_revision: 1,
+            }])
+            .unwrap(),
+            Arc::new(|_, _| {}),
+            Arc::new(|_, _| false),
+            Arc::new(|_, _| None),
+            Arc::new(|_, _| false),
+        )
+        .unwrap();
+        let peer = controller
+            .control_peer(
+                "receiver-a",
+                PeerRole::Receiver,
+                format!("127.0.0.1:{}", receiver.port()),
+                PROTOCOL_VERSION,
+            )
+            .unwrap();
+        let input = controller.open_input(peer).unwrap();
+        let session = protocol_v2::SessionId {
+            controller_boot: protocol_v2::BootId([1; 16]),
+            receiver_boot: protocol_v2::BootId([2; 16]),
+            nonce: [3; 16],
+        };
+        for (sequence, down) in [(1, true), (2, false)] {
+            input
+                .try_send(&CriticalFrame {
+                    session_id: session,
+                    sequence,
+                    event: protocol_v2::CriticalEvent::Key {
+                        key_code: 65,
+                        scan_code: 30,
+                        extended: false,
+                        down,
+                    },
+                })
+                .unwrap();
+        }
+        for expected in [1, 2] {
+            let (frame, peer) = input_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert_eq!(frame.sequence, expected);
+            assert_eq!(peer.peer_id, "controller-a");
+            assert_eq!(peer.role, PeerRole::Controller);
+        }
+        drop(input);
+        controller.shutdown();
+        receiver.shutdown();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn critical_input_queue_enforces_frame_and_byte_budgets() {
+        let (outgoing, receiver) = tokio_mpsc::channel(INPUT_QUEUE_FRAMES);
+        let budget = Arc::new(AtomicUsize::new(0));
+        let handle = InputHandle {
+            outgoing,
+            budget: Arc::clone(&budget),
+        };
+        let frame = CriticalFrame {
+            session_id: protocol_v2::SessionId {
+                controller_boot: protocol_v2::BootId([1; 16]),
+                receiver_boot: protocol_v2::BootId([2; 16]),
+                nonce: [3; 16],
+            },
+            sequence: 1,
+            event: protocol_v2::CriticalEvent::Key {
+                key_code: 65,
+                scan_code: 30,
+                extended: false,
+                down: true,
+            },
+        };
+        for _ in 0..INPUT_QUEUE_FRAMES {
+            handle.try_send(&frame).unwrap();
+        }
+        assert!(handle.try_send(&frame).is_err());
+        drop(receiver);
+        assert_eq!(budget.load(Ordering::Acquire), 0);
+        assert!(reserve_input_bytes(&budget, INPUT_QUEUE_BYTES).is_ok());
+        assert!(reserve_input_bytes(&budget, 1).is_err());
     }
 }

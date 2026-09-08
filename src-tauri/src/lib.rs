@@ -27,9 +27,9 @@ pub mod control_ports;
 mod fork_policy;
 mod input;
 mod performance;
+pub mod protocol_v2;
 mod quic_transport;
 pub mod routing;
-pub mod protocol_v2;
 pub mod shared_input;
 #[cfg(target_os = "windows")]
 pub mod windows_input;
@@ -867,6 +867,7 @@ impl AppRuntime {
             on_datagram,
             on_stream,
             Arc::new(|_, _| None),
+            Arc::new(|_, _| false),
         )?;
         let mut stored = self
             .quic_transport

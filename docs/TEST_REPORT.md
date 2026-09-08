@@ -44,3 +44,9 @@
 ## T06.b control stream 增量
 
 定向测试在 Mac 本机真实 QUIC 回环上通过：已认证 control stream 在不关闭写端的情况下连续交换 Hello、Prepare/Ready 和 Commit/CommitAck；另一测试验证 64 帧发送队列及 128 帧/秒速率上限会失败关闭。原有 bulk stream 使用同一 accept loop，完整回归将继续验证其 ACK 路径。`AppRuntime` 尚未接处理器，未启动真实服务或输入。
+
+## T06.c reliable input stream 增量
+
+2026-09-08 的定向库回归在 Mac arm64 上通过 151 项测试。新增真实本机 QUIC 回环证明已认证 Controller 的一条持久 input stream 可按顺序交付两个关键帧，且 handler 收到 TLS 绑定的身份；接收端不等待 EOF。4 KiB 单帧上限、256 帧及 256 KiB 发送预算、单连接唯一 input stream和全局 8 条上限均为硬边界，队列满会向调用方返回错误。
+
+协议门控测试拒绝旧 receiver boot、结束后的帧与同会话复活、乱序/重复序列、空键码和序列空间耗尽。当前 `AppRuntime` 仍传入空 input handler，所以这些结果只证明传输及会话边界；没有调用 FakeInjector 或真实系统输入。A16/A17/A22 保留 not_run，并将已有证据记录为 partial，等待 T04.b/T07 贯通后完成端到端断言。

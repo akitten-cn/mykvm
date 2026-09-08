@@ -362,11 +362,11 @@
       "review_focus": [
         "协议是拟新增；不继续把内部 ReleaseAll 当线上已存在的消息"
       ],
-      "implementation": "in_progress",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
         "windows_build": "not_run",
         "windows_runtime": "optional_not_run",
@@ -374,7 +374,8 @@
       },
       "evidence": [
         "../T06a-protocol.md",
-        "../T06b-control-stream.md"
+        "../T06b-control-stream.md",
+        "../T06c-input-stream.md"
       ],
       "blocked_reason": null,
       "subtasks": [
@@ -401,8 +402,12 @@
         {
           "id": "T06.c",
           "title": "V2 可靠 input 分帧与持久流",
-          "implementation": "todo",
-          "review": "pending"
+          "implementation": "done",
+          "review": "approved",
+          "verification": {
+            "automated": "pass",
+            "scope": "Authenticated Controller-only persistent input loopback preserves two reliable frames; bounded frame/byte queues and strict session sequence gate pass. App runtime/FakeInjector integration remains T04.b/T07."
+          }
         }
       ]
     },
