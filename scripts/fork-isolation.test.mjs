@@ -71,6 +71,14 @@ test('A39-A41: background runtime owns lifecycle and autostart stays silent', ()
   assert.match(source, /fn ensure_main_window[\s\S]*?WebviewWindowBuilder::new/)
 })
 
+test('A43/A44: tray exposes Chinese emergency return and pause actions', () => {
+  const source = read('src-tauri/src/lib.rs')
+  assert.match(source, /"emergency-local",\s*"紧急返回 Windows"/)
+  assert.match(source, /"暂停后台服务"/)
+  assert.match(source, /"恢复后台服务"/)
+  assert.match(source, /fn request_emergency_local[\s\S]*?request_local\(\)[\s\S]*?ControlHotkeyAction::EmergencyLocal/)
+})
+
 test('A42: fork cannot automatically run the upstream release workflow', () => {
   for (const file of readdirSync(new URL('../.github/workflows/', import.meta.url))) {
     assert.doesNotMatch(read(`.github/workflows/${file}`), /TAURI_SIGNING_PRIVATE_KEY|contents: write|gh release/)

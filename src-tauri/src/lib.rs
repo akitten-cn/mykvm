@@ -2273,6 +2273,22 @@ fn toggle_runtime_from_app(app: &AppHandle) -> Result<RuntimeStatus, String> {
     Ok(runtime)
 }
 
+fn request_emergency_local(
+    local_override: &routing::LocalOverride,
+    control_action: &game_mode::ControlActionSlot,
+) -> Result<(), String> {
+    local_override.request_local();
+    control_action
+        .offer(game_mode::ControlHotkeyAction::EmergencyLocal)
+        .then_some(())
+        .ok_or_else(|| "紧急返回请求队列正忙，请重试。".to_string())
+}
+
+fn request_emergency_local_from_app(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<AppRuntime>();
+    request_emergency_local(&state.controller_local_override, &state.control_action)
+}
+
 fn notify_runtime_state_changed(app: &AppHandle, runtime: &RuntimeStatus) {
     update_runtime_tray_state(app, runtime.started);
     let _ = app.emit(RUNTIME_STATE_EVENT, runtime);
@@ -2294,9 +2310,9 @@ fn update_runtime_tray_state(app: &AppHandle, started: bool) {
 
 fn runtime_toggle_menu_label(started: bool) -> &'static str {
     if started {
-        "快捷启停：已启动"
+        "暂停后台服务"
     } else {
-        "快捷启停：已停止"
+        "恢复后台服务"
     }
 }
 
@@ -3979,11 +3995,24 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
+    let emergency_item = MenuItem::with_id(
+        app,
+        "emergency-local",
+        "紧急返回 Windows",
+        true,
+        None::<&str>,
+    )?;
     let hide_item = MenuItem::with_id(app, "hide", "隐藏设置窗口", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "退出 MyKVM Local", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&show_item, &runtime_toggle_item, &hide_item, &quit_item],
+        &[
+            &show_item,
+            &emergency_item,
+            &runtime_toggle_item,
+            &hide_item,
+            &quit_item,
+        ],
     )?;
 
     if let Some(state) = app.try_state::<AppRuntime>() {
@@ -4003,6 +4032,11 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             "runtime-toggle" => {
                 if let Err(error) = toggle_runtime_from_app(app) {
                     log::warn!("quick start/stop tray action failed: {error}");
+                }
+            }
+            "emergency-local" => {
+                if let Err(error) = request_emergency_local_from_app(app) {
+                    log::warn!("emergency tray action failed: {error}");
                 }
             }
             "hide" => {
@@ -8687,6 +8721,18 @@ mod tests {
             "mykvm-local",
             "--mykvm-local-autostart-extra"
         ]));
+    }
+
+    #[test]
+    fn a43_tray_emergency_sets_local_gate_before_queueing() {
+        let local_override = routing::LocalOverride::default();
+        let actions = game_mode::ControlActionSlot::default();
+        request_emergency_local(&local_override, &actions).unwrap();
+        assert!(local_override.is_local());
+        assert_eq!(
+            actions.take(),
+            Some(game_mode::ControlHotkeyAction::EmergencyLocal)
+        );
     }
 
     #[cfg(all(unix, not(target_os = "windows")))]
