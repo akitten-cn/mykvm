@@ -85,6 +85,8 @@ QUIC input stream 无论正常 EOF、解码失败还是 handler 拒绝都会调�
 
 控制端握手不再在 Ready 时自动生成 Commit；`ControllerRuntime` 只有在 Router 确认物理键已释放且 FocusPort 成功后才显式 Commit。5 项 FakeCapture/FakeFocus 测试覆盖正常激活、输入严格序列、ACK 前应急取消、提前 ACK/非法活动帧失败关闭和返回本地的动作顺序。
 
-2026-09-08 在 Mac arm64 上执行 `../source/with-rust.sh python3 ../source/run-check.py t04b3b1-native node scripts/check-native.mjs`，退出码 0。最终复跑为 172 个 Rust 库测试、8 项隔离检查、前端 lint/build、Mac cargo check 和包含新适配器的核心格式检查全部通过。证据基线 SHA 为 `c78069f6b0073047081eb0e483db046949f7cc90`，日志为本地 `.local-evidence/t04b3b1-native.log`；提交后复核待运行。
+2026-09-08 在 Mac arm64 上执行 `../source/with-rust.sh python3 ../source/run-check.py t04b3b1-native node scripts/check-native.mjs`，退出码 0。最终复跑为 172 个 Rust 库测试、8 项隔离检查、前端 lint/build、Mac cargo check 和包含新适配器的核心格式检查全部通过。
+
+提交后以实现 SHA `47171b1812e1ea9af6ea70896d9ee9ba30437231` 再次运行同一整套检查，8 个步骤均为退出码 0，日志为本地 `.local-evidence/t04b3b1-postcommit.log`。
 
 这些测试不启动应用、网络或系统输入。Windows hook 和 QUIC control/input handle 尚未接入，Windows 构建仍为 pending_environment，不能据此宣称产品可用。
