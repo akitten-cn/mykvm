@@ -95,7 +95,8 @@
       "method": "数万模拟鼠标事件；重后端设为一调用即失败",
       "expected": "没有网络/布局重算/磁盘/鼠标归中调用",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T10a-local-game-fast-path.md", "game_mode::tests::a08_local_game_check_never_calls_heavy_path", "scripts/fork-isolation.test.mjs A08/A28"]
     },
     {
       "id": "A09",
@@ -300,8 +301,8 @@
       "expected": "回调不等待网络、GUI、磁盘；FFI 不展开 panic",
       "blocking_development": true,
       "status": "not_run",
-      "partial_evidence": ["../T09-windows-control-hotkeys.md", "scripts/fork-isolation.test.mjs T04.b3"],
-      "remaining": "T10 must remove or prove bounded hook-side context/layout locking and complete the FFI panic boundary review."
+      "partial_evidence": ["../T09-windows-control-hotkeys.md", "../T10a-local-game-fast-path.md", "scripts/fork-isolation.test.mjs A08/A28"],
+      "remaining": "T10.b must move the desktop/remote state, cursor and send coordination out of the FFI callbacks."
     },
     {
       "id": "A29",

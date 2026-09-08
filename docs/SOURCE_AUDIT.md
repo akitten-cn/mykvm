@@ -75,3 +75,7 @@ Windows 原有低级键鼠 hook 和热键/贴边入口已接到独立 V2 control
 原 Windows hook 只有方向切屏返回，系统全局快捷键也只处理按下事件。现新增三个持久化控制动作并同时接收按下/释放，两个入口共享同一去重状态。返回和紧急返回在捕获线程协调锁之前设置 Router 使用的原子本地门控，随后用不同 ReturnReason 结束会话；接收端 pressed-state 会释放已转发的热键修饰键。
 
 控制端原来向 Router 永久传入 `keys_released=false`，现由 Windows 捕获线程轮询完整虚拟键范围后传入实际结果。`WindowsV2FocusPort` 仍返回 Unavailable，编译期控制端门禁保持关闭。hook 仍读取共享 context/layout 并执行少量 Windows FFI；A28 的严格快速路径审查必须在 T10 完成，不能将本次纯逻辑与 Mac 编译结果视为 Windows hook 已通过。
+
+## T10.a 本地游戏路径核验
+
+手动游戏模式由保存布局写入进程级 AtomicBool。Windows hook 的第一个业务判断只读该原子值，命中后直接交给系统；不读取 capture context，也不进入旧的边缘/发送路径。普通路径的 context 获取从阻塞 mutex 改为 try-lock，FFI 外壳捕获 panic 并请求本地门控。桌面/远程 inner hook 仍执行光标和发送协调，A28 尚未闭环。

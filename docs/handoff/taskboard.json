@@ -748,18 +748,22 @@
       "review_focus": [
         "不等待 LOL；不要把按键转发速率与本机鼠标回报率混为一谈"
       ],
-      "implementation": "todo",
+      "implementation": "in_progress",
       "review": "pending",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "partial_pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
         "windows_build": "not_run",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
-      "blocked_reason": null
+      "evidence": [
+        "../T10a-local-game-fast-path.md",
+        "implementation SHA 2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7",
+        ".local-evidence/t10a-postcommit.log"
+      ],
+      "blocked_reason": "T10.b must move remaining desktop/remote work out of hook callbacks; Windows build target is unavailable."
     },
     {
       "id": "T11",
