@@ -53,6 +53,14 @@ test('A40: packaging does not install helpers, alter trust or copy installed app
   assert.doesNotMatch(workflow, /gh release|actions\/create-release|contents:\s*write|id-token:\s*write/)
 })
 
+test('T24: resource sampler observes an existing process without controlling it', () => {
+  const sampler = read('scripts/sample-mac-resources.sh')
+  assert.match(sampler, /--pid/)
+  assert.match(sampler, /ps -p/)
+  assert.match(sampler, /top -l 1/)
+  assert.doesNotMatch(sampler, /open -a|nohup|kill -|pkill|sudo|powermetrics/)
+})
+
 test('A40: privileged routes fail closed, even when called outside the UI', () => {
   const source = read('src-tauri/src/lib.rs')
   for (const name of ['restart_as_admin', 'install_input_service', 'uninstall_input_service', 'send_secure_attention']) {
