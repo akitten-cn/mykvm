@@ -36,11 +36,11 @@
       "method": "Prepare 后取消，再注入 Ready/CommitAck",
       "expected": "保持本地，不激活已取消请求",
       "blocking_development": true,
-      "status": "not_run",
-      "partial_evidence": [
-        "../T04a-routing.md"
-      ],
-      "remaining": "Production hook/V2 adapter integration not complete; core simulation passed."
+      "status": "pass",
+      "evidence": [
+        "../T11-windows-focus-handoff.md",
+        "routing::tests::a03_cancelled_request_rejects_late_ready_and_ack"
+      ]
     },
     {
       "id": "A04",
@@ -105,11 +105,12 @@
       "method": "FocusPort 返回 denied/unavailable",
       "expected": "留本地且产生明确错误，不循环抢前台",
       "blocking_development": true,
-      "status": "not_run",
-      "partial_evidence": [
-        "../T04a-routing.md"
-      ],
-      "remaining": "Production hook/V2 adapter integration not complete; core simulation passed."
+      "status": "pass",
+      "evidence": [
+        "../T11-windows-focus-handoff.md",
+        "routing::tests::a09_focus_denial_tries_once_then_returns_local",
+        "scripts/fork-isolation.test.mjs A09"
+      ]
     },
     {
       "id": "A10",

@@ -146,3 +146,9 @@ A05 以共享原子去重器覆盖系统入口、hook 入口和自动重复；�
 A08 运行 50,000 次原子游戏模式判断，重路径调用计数为 0；源码隔离检查确认 Windows 鼠标/键盘 hook 在 context、布局、网络路径前直接放行，并验证 panic 不越过 FFI。实现 SHA `2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7` 的提交后检查退出码 0：200 个 Rust 库测试、10 项隔离检查、前端 lint/build、Mac cargo check 和相关格式检查通过。
 
 A08 标记 pass。T10.b 以 1024 项有界 try-send 队列将桌面/远程状态、光标和发送协调移至捕获线程；满队列测试立即失败，源码白名单确认 inner hook 无锁等待、布局、光标、日志或网络调用。实现 SHA `15fd004b5f471f7f83cc3b86fffb1a448e74dfaf` 的提交后检查退出码 0：202 个 Rust 库测试、10 项隔离检查、前端 lint/build、Mac cargo check及完整 input.rs 语法解析通过。A28 标记 pass。未测 Windows 物理回报率，也未运行 LOL。
+
+## T11 Windows 焦点交接
+
+A09 的路由测试使用拒绝型 FakeFocus，证明单次尝试后恢复本地且不会激活；新增隔离检查核对生产 FocusPort 调用 Windows 原生适配器，适配器只有一次前台交接调用，没有循环、等待、键盘合成或游戏注入，并提供中文 Alt+Tab 回退提示。A03 的既有路由测试证明取消后的 Ready 和 CommitAck 均不能激活旧请求。两项更新为 pass。
+
+实现 SHA `19191db65aaac1743823538df3d4c4ad066e6c5b` 的提交后检查退出码 0：202 个 Rust 库测试、11 项隔离检查、前端 lint/build、Mac cargo check 和干净工作树通过，证据为 `.local-evidence/t11-postcommit.log`。Mac 应用未启动，Windows 编译缺环境，Windows 焦点/物理输入未实测；L01–L03 保持 optional_not_run。

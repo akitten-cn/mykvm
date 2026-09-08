@@ -801,17 +801,21 @@
       "review_focus": [
         "L01-L03 不作为任务通过/下阶段的硬依赖；禁止游戏注入与强抢循环"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../T11-windows-focus-handoff.md",
+        "implementation SHA 19191db65aaac1743823538df3d4c4ad066e6c5b",
+        ".local-evidence/t11-postcommit.log"
+      ],
       "blocked_reason": null
     },
     {
