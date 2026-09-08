@@ -14,9 +14,42 @@ pub(crate) struct ClipboardImage {
 }
 
 /// One unit of clipboard content read from (or written to) the local system.
+#[derive(Debug, Clone)]
 pub(crate) enum ClipboardContent {
     Text(String),
     Image(ClipboardImage),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ClipboardRead<T> {
+    Content(T),
+    Unchanged,
+    Empty,
+    Busy,
+    Unsupported,
+    Error(String),
+}
+
+/// Resolves a bounded series of platform read attempts. Content observed while
+/// the platform sequence changes is discarded because it can belong to the old
+/// format; busy attempts may retry, while stable empty/error results remain
+/// distinguishable and never become an empty remote write.
+fn resolve_stable_read<T>(
+    attempts: impl IntoIterator<Item = (u64, u64, ClipboardRead<T>)>,
+    max_attempts: usize,
+) -> ClipboardRead<T> {
+    let mut attempted = 0;
+    for (before, after, result) in attempts {
+        if attempted >= max_attempts {
+            break;
+        }
+        attempted += 1;
+        if before != after || matches!(result, ClipboardRead::Busy) {
+            continue;
+        }
+        return result;
+    }
+    ClipboardRead::Busy
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,6 +218,54 @@ mod tests {
 
         assert_eq!(envs.get("LANG"), Some(&"en_US.UTF-8"));
         assert_eq!(envs.get("LC_CTYPE"), Some(&"en_US.UTF-8"));
+    }
+
+    #[test]
+    fn a33_typed_clipboard_failures_never_become_empty_content() {
+        for status in [
+            ClipboardRead::<String>::Unchanged,
+            ClipboardRead::<String>::Empty,
+            ClipboardRead::Unsupported,
+            ClipboardRead::Error("access denied".into()),
+        ] {
+            let resolved = resolve_stable_read([(7, 7, status.clone())], 3);
+            assert_eq!(resolved, status);
+            assert!(!matches!(resolved, ClipboardRead::Content(_)));
+        }
+        assert_eq!(
+            resolve_stable_read(
+                [
+                    (7, 7, ClipboardRead::Busy),
+                    (7, 7, ClipboardRead::Content("current".to_string())),
+                ],
+                3,
+            ),
+            ClipboardRead::Content("current".to_string())
+        );
+        assert_eq!(
+            resolve_stable_read(
+                [
+                    (7, 8, ClipboardRead::Content("stale text".to_string())),
+                    (8, 8, ClipboardRead::Unsupported),
+                ],
+                3,
+            ),
+            ClipboardRead::Unsupported,
+            "a format change must not fall back to text from the old sequence"
+        );
+        assert_eq!(
+            resolve_stable_read(
+                [
+                    (1, 1, ClipboardRead::<String>::Busy),
+                    (1, 1, ClipboardRead::Busy),
+                    (1, 1, ClipboardRead::Busy),
+                    (1, 1, ClipboardRead::Content("too late".into())),
+                ],
+                3,
+            ),
+            ClipboardRead::Busy,
+            "the retry budget must be hard bounded"
+        );
     }
 }
 
