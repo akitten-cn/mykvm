@@ -106,3 +106,5 @@ Windows 生产路径已实例化 V2 controller client，接入热键/贴边准�
 2026-09-08 执行 `t04b3b2b-native`，退出码 0：178 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查通过。日志为本地 `.local-evidence/t04b3b2b-native.log`。测试未启动应用、网络、键鼠或剪贴板。
 
 Windows 交叉检查实际尝试后退出码 101，失败发生在项目代码前：`x86_64-pc-windows-msvc` 标准库未安装（E0463）。Windows build 保持 pending_environment；该失败不阻塞 T08 等可在 Mac 验证的实现，也不计为产品缺陷通过。
+
+提交后以实现 SHA `409af83e70ca87a594d97d7008218220e601728d` 复跑整套检查，8 个步骤均为退出码 0，日志为本地 `.local-evidence/t04b3b2b-postcommit.log`。
