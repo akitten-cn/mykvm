@@ -277,8 +277,8 @@ struct LayoutState {
 /// Cross-platform modifier remapping. Each field names the *logical* modifier
 /// the source key should become on the remote when the two machines run
 /// different operating systems. Values: "control" | "alt" | "meta" | "same".
-/// Default swaps the primary shortcut modifier so Ctrl (Windows) and
-/// Command (macOS) line up, e.g. Ctrl+C on Windows becomes Cmd+C on macOS.
+/// The default preserves physical modifier meaning. Ctrl/Command interchange
+/// is an explicit preset rather than an application-dependent implicit rule.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ModifierMap {
@@ -1060,6 +1060,19 @@ impl AppRuntime {
                 if !v2_input_enabled.load(Ordering::Acquire) {
                     return false;
                 }
+                let modifier_mapping = layout_for_v2_input.lock().ok().map(|layout| {
+                    (
+                        layout.modifier_remap,
+                        layout.modifier_map.control.clone(),
+                        layout.modifier_map.alt.clone(),
+                        layout.modifier_map.meta.clone(),
+                    )
+                });
+                let Some((modifier_remap, modifier_control, modifier_alt, modifier_meta)) =
+                    modifier_mapping
+                else {
+                    return false;
+                };
                 let result = receiver_for_input
                     .lock()
                     .map(|mut receiver| {
@@ -1071,6 +1084,12 @@ impl AppRuntime {
                             protocol_v2::ProtocolError::InvalidField("layout_revision"),
                         ))?;
                         receiver.update_display_layouts(display_layouts)?;
+                        receiver.update_modifier_mapping(
+                            modifier_remap,
+                            &modifier_control,
+                            &modifier_alt,
+                            &modifier_meta,
+                        );
                         receiver
                             .handle_input_at(
                                 &frame,
@@ -5047,11 +5066,11 @@ fn default_transport_port_mode() -> String {
 }
 
 fn default_modifier_remap() -> bool {
-    true
+    false
 }
 
 fn default_modifier_control() -> String {
-    "meta".into()
+    "same".into()
 }
 
 fn default_modifier_alt() -> String {
@@ -5059,7 +5078,7 @@ fn default_modifier_alt() -> String {
 }
 
 fn default_modifier_meta() -> String {
-    "control".into()
+    "same".into()
 }
 
 fn default_modifier_map() -> ModifierMap {

@@ -1369,6 +1369,16 @@ function App() {
     }));
   }
 
+  function applyModifierPreset(swapControlAndCommand: boolean) {
+    updateLayout((layoutState) => ({
+      ...layoutState,
+      modifierRemap: swapControlAndCommand,
+      modifierMap: swapControlAndCommand
+        ? { control: "meta", alt: "same", meta: "control" }
+        : { control: "same", alt: "same", meta: "same" },
+    }));
+  }
+
   function setLanguage(language: AppLanguage) {
     updateLayout((layoutState) => ({
       ...layoutState,
@@ -2859,6 +2869,29 @@ function App() {
                   </button>
                 </div>
                 <p className="muted-copy">{ui.settings.modifierCopy}</p>
+                <div className="segmented-control">
+                  <button
+                    type="button"
+                    className={!layout.modifierRemap ? "active" : ""}
+                    onClick={() => applyModifierPreset(false)}
+                  >
+                    {ui.settings.modifierPresetKeep}
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      layout.modifierRemap &&
+                      layout.modifierMap.control === "meta" &&
+                      layout.modifierMap.alt === "same" &&
+                      layout.modifierMap.meta === "control"
+                        ? "active"
+                        : ""
+                    }
+                    onClick={() => applyModifierPreset(true)}
+                  >
+                    {ui.settings.modifierPresetSwap}
+                  </button>
+                </div>
                 {(
                   [
                     ["control", ui.settings.modifierRowControl],

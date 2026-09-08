@@ -134,7 +134,9 @@ export const TEXT = {
         "将文件或文件夹拖到相邻屏幕即可跨设备传输，落在哪个设备上就送到哪台。",
       modifierTitle: "跨平台改键",
       modifierCopy:
-        "本机作为控制端时，发往不同系统对端的修饰键映射（仅 Win↔Mac 跨平台时生效）。默认 Ctrl↔Command 对调，让复制、粘贴、全选等快捷键沿用各自系统习惯。",
+        "默认原样保留 Ctrl、Win/Command 和 Alt/Option，因此 Ctrl+C 仍是终端中断，Win+C/V 对应 Mac 的 Command+C/V。需要时可显式选择 Ctrl↔Command 互换。",
+      modifierPresetKeep: "原样保留",
+      modifierPresetSwap: "Ctrl ↔ Command",
       modifierRowControl: "Ctrl 键 →",
       modifierRowAlt: "Alt / Option →",
       modifierRowMeta: "Win 键 / ⌘ →",
@@ -374,7 +376,9 @@ export const TEXT = {
         "Drag files or folders onto an adjacent screen to transfer them across devices — wherever they land is where they go.",
       modifierTitle: "Cross-platform Keys",
       modifierCopy:
-        "When this machine controls a peer on a different OS, remap modifier keys (only applies across Win↔Mac). The default swaps Ctrl↔Command so copy, paste, and select-all keep each platform's shortcut habits.",
+        "By default Ctrl, Win/Command, and Alt/Option keep their meanings: Ctrl+C remains a terminal interrupt and Win+C/V becomes Command+C/V on Mac. Choose the Ctrl↔Command preset explicitly when wanted.",
+      modifierPresetKeep: "Keep modifiers",
+      modifierPresetSwap: "Ctrl ↔ Command",
       modifierRowControl: "Ctrl key →",
       modifierRowAlt: "Alt / Option →",
       modifierRowMeta: "Win key / ⌘ →",

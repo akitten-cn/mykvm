@@ -1981,7 +1981,7 @@ fn input_packet_context(
 
 /// Rewrites modifier keys on key events when the controlling machine and the
 /// target run different operating systems, so platform shortcut conventions
-/// line up (default: Ctrl <-> Cmd). Non-key events and same-platform targets
+/// line up when explicitly configured. Non-key events and same-platform targets
 /// pass through untouched. The wire format is always Windows virtual-key codes.
 fn remap_event_for_target_layout(
     event: InputEvent,
@@ -2029,37 +2029,8 @@ fn remap_event_for_target(
     }
 }
 
-/// Classifies a Windows virtual-key code into a logical modifier group:
-/// 0 = Control, 1 = Alt, 2 = Meta (Windows key / macOS Command).
-fn classify_modifier_vk(vk: u16) -> Option<u8> {
-    match vk {
-        0x11 | 0xA2 | 0xA3 => Some(0),
-        0x12 | 0xA4 | 0xA5 => Some(1),
-        0x5B | 0x5C => Some(2),
-        _ => None,
-    }
-}
-
-/// Resolves a configured logical target to its canonical Windows virtual-key
-/// code. "same" (or any unknown value) returns None so the original key, with
-/// its left/right distinction, is preserved.
-fn logical_target_vk(target: &str) -> Option<u16> {
-    match target {
-        "control" => Some(0x11),
-        "alt" => Some(0x12),
-        "meta" => Some(0x5B),
-        _ => None,
-    }
-}
-
 fn remap_modifier_vk(vk: u16, control: &str, alt: &str, meta: &str) -> u16 {
-    let target = match classify_modifier_vk(vk) {
-        Some(0) => control,
-        Some(1) => alt,
-        Some(2) => meta,
-        _ => return vk,
-    };
-    logical_target_vk(target).unwrap_or(vk)
+    crate::session_runtime::remap_modifier_vk(vk, control, alt, meta)
 }
 
 fn mark_target_offline(
@@ -6812,17 +6783,11 @@ fn inject_scroll(delta_x: i32, delta_y: i32) {
 #[cfg(target_os = "macos")]
 static MAC_INJECT_FLAGS: AtomicU64 = AtomicU64::new(0);
 
-/// Latch so a held (auto-repeating) remote Caps Lock toggles the input source
-/// exactly once until its key-up arrives.
-#[cfg(target_os = "macos")]
-static MACOS_CAPS_LOCK_DOWN: AtomicBool = AtomicBool::new(false);
-
 /// Clears the tracked injected-modifier flags. Called when receiving stops so a
 /// dropped modifier key-up cannot leave Shift/Ctrl/Cmd stuck on for later keys.
 #[cfg(target_os = "macos")]
 pub fn reset_injected_modifiers() {
     MAC_INJECT_FLAGS.store(0, Ordering::Relaxed);
-    MACOS_CAPS_LOCK_DOWN.store(false, Ordering::Relaxed);
     if let Ok(mut tracker) = macos_click_tracker().lock() {
         *tracker = MacClickTracker::default();
     }
@@ -6852,30 +6817,6 @@ fn inject_key(key_code: u16, down: bool) {
         event::{CGEvent, CGEventFlags, CGEventTapLocation},
         event_source::{CGEventSource, CGEventSourceStateID},
     };
-
-    // VK_CAPITAL: replicate the macOS "Caps Lock switches input sources"
-    // behaviour for remote input. macOS honours that setting only for the
-    // physical key — an injected caps keycode toggles neither the IME nor the
-    // caps state — so post the system "Select the previous input source"
-    // hotkey (⌃Space) instead: HIToolbox then performs the switch exactly as
-    // for a physical press, including refreshing the focused app's input
-    // session (TISSelectInputSource from a background process updates the
-    // menu-bar indicator but the focused app keeps typing in the old source
-    // until refocused). Remote Caps Lock therefore never acts as a
-    // letter-case toggle on this Mac.
-    // ponytail: assumes the ⌃Space symbolic hotkey is enabled (macOS default,
-    // verified on this deployment); read com.apple.symbolichotkeys key 60 if
-    // this ever needs to adapt.
-    if key_code == 0x14 {
-        if down {
-            if !MACOS_CAPS_LOCK_DOWN.swap(true, Ordering::Relaxed) {
-                macos_post_select_previous_input_source();
-            }
-        } else {
-            MACOS_CAPS_LOCK_DOWN.store(false, Ordering::Relaxed);
-        }
-        return;
-    }
 
     // Keep the running modifier state in sync, so the modifier event itself and
     // every later key carry the right flags.
@@ -6928,48 +6869,6 @@ fn mac_function_section_flags(mac_code: u16) -> core_graphics::event::CGEventFla
         115 | 116 | 117 | 119 | 121 => CGEventFlags::CGEventFlagSecondaryFn,
         _ => CGEventFlags::empty(),
     }
-}
-
-/// Posts the system input-source toggle hotkey (⌃Space, symbolic hotkey 60)
-/// as a full physical-like sequence: Control down, Space down/up, Control up.
-/// Flags are set per event and deliberately plain ⌃ — a concurrently held
-/// remote modifier would form a different chord and miss the hotkey; the next
-/// injected key restores the tracked flags anyway.
-#[cfg(target_os = "macos")]
-fn macos_post_select_previous_input_source() {
-    use core_graphics::{
-        event::{CGEvent, CGEventFlags, CGEventTapLocation},
-        event_source::{CGEventSource, CGEventSourceStateID},
-    };
-
-    const MAC_KEY_CONTROL: u16 = 59; // kVK_Control
-    const MAC_KEY_SPACE: u16 = 49; // kVK_Space
-
-    let control = CGEventFlags::CGEventFlagControl;
-    let no_flags = CGEventFlags::empty();
-    let sequence = [
-        (MAC_KEY_CONTROL, true, control),
-        (MAC_KEY_SPACE, true, control),
-        (MAC_KEY_SPACE, false, control),
-        (MAC_KEY_CONTROL, false, no_flags),
-    ];
-    for (mac_code, down, flags) in sequence {
-        let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
-            log::warn!("caps toggle: failed to create CGEventSource");
-            return;
-        };
-        match CGEvent::new_keyboard_event(source, mac_code, down) {
-            Ok(event) => {
-                event.set_flags(flags);
-                event.post(CGEventTapLocation::HID);
-            }
-            Err(_) => {
-                log::warn!("caps toggle: failed to build keyboard event for mac code {mac_code}");
-                return;
-            }
-        }
-    }
-    log::info!("[diag] caps: posted input-source toggle (ctrl+space)");
 }
 
 #[cfg(target_os = "windows")]
@@ -8245,7 +8144,6 @@ mod tests {
     #[test]
     fn fast_crossing_carries_entry_delta_into_remote() {
         let target = target_for_coordinate_tests();
-        let layout_state = Arc::new(Mutex::new(layout_for_target_tests()));
         let active = crossing_target(&[target], 1919.0, 500.0, 40.0, 0.0)
             .expect("fast edge movement should cross");
 
@@ -8395,30 +8293,31 @@ mod tests {
     }
 
     #[test]
-    fn default_modifier_map_swaps_control_and_meta() {
+    fn a30_a31_default_modifier_map_preserves_control_meta_and_alt() {
         let map = crate::default_modifier_map();
+        assert!(!crate::default_modifier_remap());
 
-        // Control (any side) -> Meta (Windows key / macOS Command)
+        // Ctrl remains Mac Control, including its left/right identity.
         assert_eq!(
             remap_modifier_vk(0x11, &map.control, &map.alt, &map.meta),
-            0x5B
+            0x11
         );
         assert_eq!(
             remap_modifier_vk(0xA2, &map.control, &map.alt, &map.meta),
-            0x5B
+            0xA2
         );
         assert_eq!(
             remap_modifier_vk(0xA3, &map.control, &map.alt, &map.meta),
-            0x5B
+            0xA3
         );
-        // Meta -> Control
+        // Win remains Mac Command, including its left/right identity.
         assert_eq!(
             remap_modifier_vk(0x5B, &map.control, &map.alt, &map.meta),
-            0x11
+            0x5B
         );
         assert_eq!(
             remap_modifier_vk(0x5C, &map.control, &map.alt, &map.meta),
-            0x11
+            0x5C
         );
         // Alt stays as itself (left/right preserved via "same")
         assert_eq!(
@@ -8436,7 +8335,21 @@ mod tests {
     fn custom_modifier_map_is_honored() {
         // User keeps Ctrl literal but maps the Windows/Command key to Alt.
         assert_eq!(remap_modifier_vk(0x11, "same", "same", "alt"), 0x11);
-        assert_eq!(remap_modifier_vk(0x5B, "same", "same", "alt"), 0x12);
+        assert_eq!(remap_modifier_vk(0x5B, "same", "same", "alt"), 0xA4);
+    }
+
+    #[test]
+    fn a30_explicit_control_command_swap_preset_is_symmetric() {
+        for (source, target) in [
+            (0xA2, 0x5B),
+            (0xA3, 0x5C),
+            (0x5B, 0xA2),
+            (0x5C, 0xA3),
+        ] {
+            assert_eq!(remap_modifier_vk(source, "meta", "same", "control"), target);
+        }
+        assert_eq!(remap_modifier_vk(0xA4, "meta", "same", "control"), 0xA4);
+        assert_eq!(remap_modifier_vk(0x43, "meta", "same", "control"), 0x43);
     }
 
     #[test]

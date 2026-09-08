@@ -99,6 +99,45 @@ pub fn display_layout_revision(display_id: &str, width: i32, height: i32, scale_
     hash.max(1)
 }
 
+pub fn remap_modifier_vk(vk: u16, control: &str, alt: &str, meta: &str) -> u16 {
+    let target = match vk {
+        0x11 | 0xA2 | 0xA3 => control,
+        0x12 | 0xA4 | 0xA5 => alt,
+        0x5B | 0x5C => meta,
+        _ => return vk,
+    };
+    let right = matches!(vk, 0xA1 | 0xA3 | 0xA5 | 0x5C);
+    let generic = matches!(vk, 0x10 | 0x11 | 0x12);
+    match target {
+        "control" => {
+            if generic {
+                0x11
+            } else if right {
+                0xA3
+            } else {
+                0xA2
+            }
+        }
+        "alt" => {
+            if generic {
+                0x12
+            } else if right {
+                0xA5
+            } else {
+                0xA4
+            }
+        }
+        "meta" => {
+            if right {
+                0x5C
+            } else {
+                0x5B
+            }
+        }
+        _ => vk,
+    }
+}
+
 pub fn receiver_mode_enabled(machine_role: &str, input_mode: &str) -> bool {
     machine_role == "client" && input_mode == "receive"
 }
@@ -115,6 +154,10 @@ pub struct ReceiverSessionRuntime<I> {
     display_layouts: Vec<ReceiverDisplayLayout>,
     prepared_display: Option<ReceiverDisplayLayout>,
     active_display: Option<ReceiverDisplayLayout>,
+    modifier_remap: bool,
+    modifier_control: String,
+    modifier_alt: String,
+    modifier_meta: String,
     last_activity_ms: Option<u64>,
     last_fault: Option<SessionFault>,
     pressed: PressedState,
@@ -157,6 +200,10 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
             display_layouts,
             prepared_display: None,
             active_display: None,
+            modifier_remap: false,
+            modifier_control: "same".into(),
+            modifier_alt: "same".into(),
+            modifier_meta: "same".into(),
             last_activity_ms: None,
             last_fault: None,
             pressed: PressedState::default(),
@@ -336,6 +383,13 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
         Ok(true)
     }
 
+    pub fn update_modifier_mapping(&mut self, enabled: bool, control: &str, alt: &str, meta: &str) {
+        self.modifier_remap = enabled;
+        self.modifier_control = control.into();
+        self.modifier_alt = alt.into();
+        self.modifier_meta = meta.into();
+    }
+
     pub fn handle_input(
         &mut self,
         frame: &CriticalFrame,
@@ -360,6 +414,16 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
             return Err(SessionRuntimeError::Protocol(ProtocolError::WrongSession));
         }
         let mut mapped_event = frame.event.clone();
+        if let crate::protocol_v2::CriticalEvent::Key { key_code, .. } = &mut mapped_event {
+            if self.modifier_remap {
+                *key_code = remap_modifier_vk(
+                    *key_code,
+                    &self.modifier_control,
+                    &self.modifier_alt,
+                    &self.modifier_meta,
+                );
+            }
+        }
         if let Some((_, x, y)) = motion_snapshot {
             let (x, y) = self.map_active_pointer(x, y)?;
             match &mut mapped_event {
@@ -800,6 +864,127 @@ mod tests {
         assert_eq!(
             runtime.health().last_fault,
             Some(SessionFault::LayoutChanged)
+        );
+    }
+
+    #[test]
+    fn a30_a31_modifier_mapping_defaults_literal_and_freezes_at_key_down() {
+        let authenticated = peer(10);
+        let mut runtime = ReceiverSessionRuntime::new(boot(2), FakeInjector::default());
+        activate(&mut runtime, &authenticated);
+
+        let key = |sequence, key_code, scan_code, down| CriticalFrame {
+            session_id: session(),
+            sequence,
+            event: CriticalEvent::Key {
+                key_code,
+                scan_code,
+                extended: false,
+                down,
+            },
+        };
+        runtime
+            .handle_input_at(&key(1, 0xA2, 29, true), &authenticated, 1)
+            .unwrap();
+        runtime
+            .handle_input_at(&key(2, 0x43, 46, true), &authenticated, 2)
+            .unwrap();
+        runtime
+            .handle_input_at(&key(3, 0x43, 46, false), &authenticated, 3)
+            .unwrap();
+        runtime
+            .handle_input_at(&key(4, 0xA2, 29, false), &authenticated, 4)
+            .unwrap();
+        assert_eq!(
+            &runtime.injector().events[..4],
+            &[
+                InputCommand::Key {
+                    key_code: 0xA2,
+                    down: true,
+                },
+                InputCommand::Key {
+                    key_code: 0x43,
+                    down: true,
+                },
+                InputCommand::Key {
+                    key_code: 0x43,
+                    down: false,
+                },
+                InputCommand::Key {
+                    key_code: 0xA2,
+                    down: false,
+                },
+            ]
+        );
+
+        // The Windows key remains Command on macOS, so Windows-side Win+C/V
+        // arrives as the native copy/paste chord without changing Ctrl+C.
+        for (sequence, key_code, scan_code, down) in [
+            (5, 0x5B, 91, true),
+            (6, 0x43, 46, true),
+            (7, 0x43, 46, false),
+            (8, 0x56, 47, true),
+            (9, 0x56, 47, false),
+            (10, 0x5B, 91, false),
+        ] {
+            runtime
+                .handle_input_at(
+                    &key(sequence, key_code, scan_code, down),
+                    &authenticated,
+                    sequence,
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            &runtime.injector().events[4..10],
+            &[
+                InputCommand::Key {
+                    key_code: 0x5B,
+                    down: true,
+                },
+                InputCommand::Key {
+                    key_code: 0x43,
+                    down: true,
+                },
+                InputCommand::Key {
+                    key_code: 0x43,
+                    down: false,
+                },
+                InputCommand::Key {
+                    key_code: 0x56,
+                    down: true,
+                },
+                InputCommand::Key {
+                    key_code: 0x56,
+                    down: false,
+                },
+                InputCommand::Key {
+                    key_code: 0x5B,
+                    down: false,
+                },
+            ]
+        );
+
+        runtime.update_modifier_mapping(true, "meta", "same", "control");
+        runtime
+            .handle_input_at(&key(11, 0xA3, 29, true), &authenticated, 11)
+            .unwrap();
+        runtime.update_modifier_mapping(false, "same", "same", "same");
+        runtime
+            .handle_input_at(&key(12, 0xA3, 29, false), &authenticated, 12)
+            .unwrap();
+        assert_eq!(
+            &runtime.injector().events[10..],
+            &[
+                InputCommand::Key {
+                    key_code: 0x5C,
+                    down: true,
+                },
+                InputCommand::Key {
+                    key_code: 0x5C,
+                    down: false,
+                },
+            ]
         );
     }
 

@@ -29,8 +29,8 @@ export const defaultLayout: LayoutState = {
   transportPortMode: 'auto',
   transportPort: 47833,
   quicPort: 47834,
-  modifierRemap: true,
-  modifierMap: { control: 'meta', alt: 'same', meta: 'control' },
+  modifierRemap: false,
+  modifierMap: { control: 'same', alt: 'same', meta: 'same' },
   edgeSwitchHotkey: 'alt+shift+k',
   screenSwitchHotkeys: { left: 'alt+left', right: 'alt+right', up: 'alt+up', down: 'alt+down' },
   controlHotkeys: {

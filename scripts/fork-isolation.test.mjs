@@ -112,6 +112,24 @@ test('A29: V2 production motion is bound to display layout and mapped before inj
   assert.match(input, /ControllerTarget \{[\s\S]*?target_display:[\s\S]*?layout_revision:/)
 })
 
+test('A30/A31: Mac modifier policy is explicit and receiver mapping freezes on key-down', () => {
+  const backend = read('src-tauri/src/lib.rs')
+  assert.match(backend, /fn default_modifier_remap\(\) -> bool \{\s*false\s*\}/)
+  for (const name of ['control', 'alt', 'meta']) {
+    assert.match(backend, new RegExp(`fn default_modifier_${name}\\(\\) -> String \\{\\s*"same"\\.into\\(\\)\\s*\\}`))
+  }
+  assert.match(read('src/defaultLayout.ts'), /modifierRemap: false,[\s\S]*?modifierMap: \{ control: 'same', alt: 'same', meta: 'same' \}/)
+
+  const session = read('src-tauri/src/session_runtime.rs')
+  assert.match(session, /let mut mapped_event = frame\.event\.clone\(\);[\s\S]*?remap_modifier_vk\([\s\S]*?self\.pressed\.apply\(&mapped_event/)
+  const input = read('src-tauri/src/input.rs')
+  assert.doesNotMatch(input, /macos_post_select_previous_input_source|MACOS_CAPS_LOCK_DOWN/)
+  assert.match(input, /\(57, 0x14\)/)
+
+  assert.match(backend, /receiver\.update_modifier_mapping\([\s\S]*?receiver[\s\S]*?\.handle_input_at\(/)
+  assert.match(backend, /if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED[\s\S]*?if controller_enabled[\s\S]*?return statuses;[\s\S]*?input::v2_inject_status\(\)/)
+})
+
 test('A08/A28: Windows local game hooks bypass context and contain panics', () => {
   const gameMode = read('src-tauri/src/game_mode.rs')
   assert.match(gameMode, /static LOCAL_GAME_MODE: AtomicBool/)
