@@ -6,4 +6,6 @@
 
 A08 的纯测试执行 50,000 次本地游戏判断，重路径计数保持 0；隔离检查验证两个 hook 的原子判断位于 context 获取和 panic 包装之前。提交后 `.local-evidence/t10a-postcommit.log` 记录 200 个 Rust 库测试、10 项隔离检查、前端 lint/build、Mac cargo check、相关格式检查和干净工作树均退出 0。
 
-A28 尚未完成：桌面/远程模式的 inner hook 仍包含状态锁、光标 FFI 和事件发送协调。后续 T10.b 将事件重路径迁出 hook 回调后再标记通过。Windows 构建和可选性能实机仍为 `pending_environment`/`optional_not_run`。
+T10.b 实现 SHA `15fd004b5f471f7f83cc3b86fffb1a448e74dfaf` 将桌面/远程重路径迁到捕获线程。两个 inner hook 现在只读取缓存/原子状态、复制 Windows 事件并向 1024 项有界通道 `try_send`；不等待 mutex，不执行布局重算、光标操作、日志或网络发送。控制热键在捕获启动时预解析，配置变化会重启捕获以刷新缓存。队列满、断开或 panic 均先请求本地门控并放行当前物理事件。
+
+新增测试证明满队列立即返回失败，源码隔离检查逐个检查两个 inner hook 的禁用调用表。提交后 `.local-evidence/t10b-postcommit.log` 记录 202 个 Rust 库测试、10 项隔离检查、前端 lint/build、Mac cargo check、Windows 源码完整语法解析和干净工作树均退出 0。A28 标记 pass。Windows 目标标准库仍未安装，Windows 编译和可选性能实机保持 `pending_environment`/`optional_not_run`。

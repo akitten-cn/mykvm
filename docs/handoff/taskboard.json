@@ -700,13 +700,13 @@
       "review_focus": [
         "在 Mac 写真实 Windows 代码；不能只用 FakeHotkey 实现交差"
       ],
-      "implementation": "in_progress",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "partial_pass",
+        "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -716,7 +716,7 @@
         "settings SHA d445e9b9757077500f896534b94a1104f3745edd",
         ".local-evidence/t09c-postcommit.log"
       ],
-      "blocked_reason": "A28 remains for T10; Windows build target is unavailable; controller gate also waits for T11."
+      "blocked_reason": null
     },
     {
       "id": "T10",
@@ -748,22 +748,24 @@
       "review_focus": [
         "不等待 LOL；不要把按键转发速率与本机鼠标回报率混为一谈"
       ],
-      "implementation": "in_progress",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "partial_pass",
+        "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
       "evidence": [
         "../T10a-local-game-fast-path.md",
         "implementation SHA 2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7",
-        ".local-evidence/t10a-postcommit.log"
+        "hook queue SHA 15fd004b5f471f7f83cc3b86fffb1a448e74dfaf",
+        ".local-evidence/t10a-postcommit.log",
+        ".local-evidence/t10b-postcommit.log"
       ],
-      "blocked_reason": "T10.b must move remaining desktop/remote work out of hook callbacks; Windows build target is unavailable."
+      "blocked_reason": null
     },
     {
       "id": "T11",

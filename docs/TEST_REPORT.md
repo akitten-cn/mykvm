@@ -145,4 +145,4 @@ A05 以共享原子去重器覆盖系统入口、hook 入口和自动重复；�
 
 A08 运行 50,000 次原子游戏模式判断，重路径调用计数为 0；源码隔离检查确认 Windows 鼠标/键盘 hook 在 context、布局、网络路径前直接放行，并验证 panic 不越过 FFI。实现 SHA `2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7` 的提交后检查退出码 0：200 个 Rust 库测试、10 项隔离检查、前端 lint/build、Mac cargo check 和相关格式检查通过。
 
-A08 标记 pass。A28 仅增加 panic 边界与 context try-lock 证据，桌面/远程 inner hook 的状态协调尚待 T10.b 移出回调，因此保持 not_run。未测 Windows 物理回报率，也未运行 LOL。
+A08 标记 pass。T10.b 以 1024 项有界 try-send 队列将桌面/远程状态、光标和发送协调移至捕获线程；满队列测试立即失败，源码白名单确认 inner hook 无锁等待、布局、光标、日志或网络调用。实现 SHA `15fd004b5f471f7f83cc3b86fffb1a448e74dfaf` 的提交后检查退出码 0：202 个 Rust 库测试、10 项隔离检查、前端 lint/build、Mac cargo check及完整 input.rs 语法解析通过。A28 标记 pass。未测 Windows 物理回报率，也未运行 LOL。

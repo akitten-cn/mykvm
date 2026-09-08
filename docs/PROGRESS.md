@@ -26,8 +26,9 @@
 |T08.b|完成|每次 motion handle 单一绝对位置槽、至多一个待刷新命令、关闭取消和 Receiver 角色限制；接收应用继续实现|
 |T08.c|完成|接收 reliable floor/latest pending、点击与拖动顺序、认证 datagram、控制端序列、Windows V2 发送、bulk/input 公平性和入站并发预算|
 |T08.d|待办|补 display_id/layout_revision、坐标范围和布局变化门控；A29 未通过，因此 T08 父任务保持进行中|
-|T09|进行中|三个控制动作、全局注册/冲突回滚、中英文设置、系统与 hook 去重、共享本地门控、物理键释放判定和热键前缀释放已实现；A28/T10 与 Windows 构建仍待完成|
+|T09|完成|三个控制动作、全局注册/冲突回滚、中英文设置、系统与 hook 去重、共享本地门控、物理键释放判定和热键前缀释放；Windows 编译为独立 pending_environment|
 |T10.a|完成|持久化手动游戏模式、中英文开关、hook 首指令原子放行、panic FFI 边界和 context try-lock；桌面/远程重路径迁移留给 T10.b|
+|T10.b|完成|1024 项有界 hook 事件队列；回调只做缓存/原子判断、事件复制和 try_send，慢路径移至捕获线程；满队列失败开放|
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
 
 T08.c 最后实现 SHA：`5d8bdb104139738bb7f7c9cfece3391019fe41d1`。提交后完整检查通过：191 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查，证据日志为本地 `.local-evidence/t08-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
@@ -36,4 +37,4 @@ T08.c 最后实现 SHA：`5d8bdb104139738bb7f7c9cfece3391019fe41d1`。提交后�
 
 T09 当前实现 SHA：`9aed9a81aa928ad67ba2bf298d49b63027b44dd6`。提交后检查通过：198 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和相关格式检查，证据日志为本地 `.local-evidence/t09c-postcommit.log`。
 
-设置界面 SHA `d445e9b9757077500f896534b94a1104f3745edd` 已补三个控制热键的中英文录入和说明，前端检查日志为 `.local-evidence/t09d-postcommit.log`。T10.a SHA `2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7` 已完成游戏模式最短放行，检查日志为 `.local-evidence/t10a-postcommit.log`。下一原子任务 T10.b 迁移桌面/远程 hook 重路径；T08.d 与 T11 的目标显示/焦点工作一起闭环。T08、T09–T11 全部通过后才审查打开控制端总门禁。
+设置界面 SHA `d445e9b9757077500f896534b94a1104f3745edd` 已补三个控制热键的中英文录入和说明，前端检查日志为 `.local-evidence/t09d-postcommit.log`。T10.a SHA `2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7` 完成游戏模式最短放行；T10.b SHA `15fd004b5f471f7f83cc3b86fffb1a448e74dfaf` 将其余重路径移出 hook，检查日志为 `.local-evidence/t10b-postcommit.log`。下一原子任务进入 T11 的 Mac 原生聚焦；T08.d 与 T11 的目标显示/焦点工作一起闭环。T08、T09–T11 全部通过后才审查打开控制端总门禁。

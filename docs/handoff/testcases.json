@@ -300,9 +300,8 @@
       "method": "FakePort 延迟+调用白名单/代码审查",
       "expected": "回调不等待网络、GUI、磁盘；FFI 不展开 panic",
       "blocking_development": true,
-      "status": "not_run",
-      "partial_evidence": ["../T09-windows-control-hotkeys.md", "../T10a-local-game-fast-path.md", "scripts/fork-isolation.test.mjs A08/A28"],
-      "remaining": "T10.b must move the desktop/remote state, cursor and send coordination out of the FFI callbacks."
+      "status": "pass",
+      "evidence": ["../T10a-local-game-fast-path.md", "input::tests::a28_hook_queue_offer_never_waits_when_full", "scripts/fork-isolation.test.mjs A08/A28"]
     },
     {
       "id": "A29",

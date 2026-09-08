@@ -79,3 +79,5 @@ Windows 原有低级键鼠 hook 和热键/贴边入口已接到独立 V2 control
 ## T10.a 本地游戏路径核验
 
 手动游戏模式由保存布局写入进程级 AtomicBool。Windows hook 的第一个业务判断只读该原子值，命中后直接交给系统；不读取 capture context，也不进入旧的边缘/发送路径。普通路径的 context 获取从阻塞 mutex 改为 try-lock，FFI 外壳捕获 panic 并请求本地门控。桌面/远程 inner hook 仍执行光标和发送协调，A28 尚未闭环。
+
+T10.b 将 inner hook 缩减为缓存热键匹配和有界 try-send。Windows 原始事件在捕获线程消息循环中处理，原有绝对位移累计、latest-wins motion、可靠关键事件及光标状态代码继续复用。队列容量固定 1024，溢出不阻塞 hook，并通过共享 LocalOverride 和返回动作失败开放。Windows cfg 尚未真实编译，此结论限于源码审查、语法解析和跨平台纯测试。
