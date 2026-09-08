@@ -22,10 +22,11 @@
 |T06.c|完成|仅认证控制端可开的 V2 可靠 input 持久流、双重有界队列、严格会话序列门控和真实 QUIC 回环顺序测试；运行时接线属于 T04.b/T07|
 |T07.a|完成|按扫描码冻结目标键映射；自动重复去重、多源同目标引用语义、按钮位置账本、正常 End/故障逐项松开及失败重试，FakeInjector 验证|
 |T07.b|完成|input stream 关闭立即结束并释放；3 秒活动租约、Ping 刷新、释放失败状态和 AppRuntime 可见错误；V2 原生接收门禁已打开|
+|T08.a|完成|独立 MKM2 motion datagram、1024-byte 上限、会话/单调序列和 required reliable floor；latest-wins 调度与接收应用继续实现|
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
 
-T04.b3.b2b 实现 SHA：`409af83e70ca87a594d97d7008218220e601728d`。提交后完整检查通过：178 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查，证据日志为本地 `.local-evidence/t04b3b2b-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
+当前 T08.a 工作树基于 SHA `f0ba967efda2280fee135ddad10cffc0c2fb80cf`；提交前完整检查通过：181 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查，证据日志为本地 `.local-evidence/t08a-native.log`。提交后仍需以新 SHA 复核。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
 
 平台证据独立记录：Mac 库编译及前端构建通过；Mac 应用打包和运行未执行；Windows 构建 pending_environment；Windows/LOL 实机 optional_not_run。没有安装包、公开 fork、推送或发布。
 
-下一原子任务为 T08，补认证 latest-wins mouse motion、motion floor 和有界调度；完成后继续 T09 物理释放/指定动作及 T10/T11 游戏与焦点门槛，再审查打开控制端总门禁。旧 LAN 开关保持关闭；剪贴板、完整中文设置、后台生命周期和预览打包仍需按任务表实现与验收。
+下一原子任务为 T08.b，实现每会话单槽 latest-wins motion 调度及关闭取消；随后 T08.c 接收端应用顺序和 Windows 发送接线。完成 T08 后继续 T09–T11，再审查打开控制端总门禁。旧 LAN 开关保持关闭；剪贴板、完整中文设置、后台生命周期和预览打包仍需按任务表实现与验收。

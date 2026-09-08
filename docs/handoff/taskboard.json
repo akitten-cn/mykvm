@@ -608,18 +608,44 @@
       "review_focus": [
         "不能丢相对位移；QUIC流共享拥塞不等于零竞争；不能每移动 spawn task"
       ],
-      "implementation": "todo",
+      "implementation": "in_progress",
       "review": "pending",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
         "windows_build": "not_run",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
-      "blocked_reason": null
+      "evidence": [
+        "../T08a-motion-protocol.md"
+      ],
+      "blocked_reason": null,
+      "subtasks": [
+        {
+          "id": "T08.a",
+          "title": "V2 motion datagram 协议",
+          "implementation": "done",
+          "review": "approved",
+          "verification": {
+            "automated": "pass",
+            "scope": "3 tests cover bounded motion encode/decode, session/sequence validation and version/magic rejection."
+          }
+        },
+        {
+          "id": "T08.b",
+          "title": "latest-wins motion transport slot",
+          "implementation": "todo",
+          "review": "pending"
+        },
+        {
+          "id": "T08.c",
+          "title": "接收顺序与 Windows motion 接线",
+          "implementation": "todo",
+          "review": "pending"
+        }
+      ]
     },
     {
       "id": "T09",

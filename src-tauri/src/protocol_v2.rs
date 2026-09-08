@@ -4,8 +4,10 @@ use serde::{Deserialize, Serialize};
 pub const PROTOCOL_MAJOR: u16 = 2;
 pub const MAX_CONTROL_FRAME_BYTES: usize = 16 * 1024;
 pub const MAX_CRITICAL_FRAME_BYTES: usize = 4 * 1024;
+pub const MAX_MOTION_FRAME_BYTES: usize = 1024;
 const MAGIC: u32 = u32::from_be_bytes(*b"MKV2");
 const INPUT_MAGIC: u32 = u32::from_be_bytes(*b"MKI2");
+const MOTION_MAGIC: u32 = u32::from_be_bytes(*b"MKM2");
 const MAX_PEER_ID_BYTES: usize = 256;
 const MAX_CAPABILITIES: usize = 32;
 const MAX_CAPABILITY_BYTES: usize = 64;
@@ -69,6 +71,15 @@ pub struct CriticalFrame {
     pub session_id: SessionId,
     pub sequence: u64,
     pub event: CriticalEvent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MotionFrame {
+    pub session_id: SessionId,
+    pub sequence: u64,
+    pub required_reliable_sequence: u64,
+    pub x: i32,
+    pub y: i32,
 }
 
 impl BootId {
@@ -159,6 +170,13 @@ struct CriticalEnvelope {
     frame: CriticalFrame,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct MotionEnvelope {
+    magic: u32,
+    major: u16,
+    frame: MotionFrame,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProtocolError {
     FrameTooLarge(usize),
@@ -209,6 +227,39 @@ pub fn encode_critical(frame: &CriticalFrame) -> Result<Vec<u8>, ProtocolError> 
     framed.extend_from_slice(&length.to_be_bytes());
     framed.extend_from_slice(&payload);
     Ok(framed)
+}
+
+pub fn encode_motion(frame: &MotionFrame) -> Result<Vec<u8>, ProtocolError> {
+    validate_motion(frame)?;
+    let payload = rmp_serde::to_vec_named(&MotionEnvelope {
+        magic: MOTION_MAGIC,
+        major: PROTOCOL_MAJOR,
+        frame: *frame,
+    })
+    .map_err(|_| ProtocolError::Decode)?;
+    if payload.is_empty() || payload.len() > MAX_MOTION_FRAME_BYTES {
+        return Err(ProtocolError::FrameTooLarge(payload.len()));
+    }
+    Ok(payload)
+}
+
+pub fn decode_motion(payload: &[u8]) -> Result<MotionFrame, ProtocolError> {
+    if payload.is_empty() {
+        return Err(ProtocolError::InvalidLength);
+    }
+    if payload.len() > MAX_MOTION_FRAME_BYTES {
+        return Err(ProtocolError::FrameTooLarge(payload.len()));
+    }
+    let envelope: MotionEnvelope =
+        rmp_serde::from_slice(payload).map_err(|_| ProtocolError::Decode)?;
+    if envelope.magic != MOTION_MAGIC {
+        return Err(ProtocolError::InvalidMagic);
+    }
+    if envelope.major != PROTOCOL_MAJOR {
+        return Err(ProtocolError::UnsupportedMajor(envelope.major));
+    }
+    validate_motion(&envelope.frame)?;
+    Ok(envelope.frame)
 }
 
 #[derive(Default)]
@@ -381,6 +432,14 @@ fn validate_critical(frame: &CriticalFrame) -> Result<(), ProtocolError> {
         } if *delta_x == 0 && *delta_y == 0 => Err(ProtocolError::InvalidField("scroll_delta")),
         _ => Ok(()),
     }
+}
+
+fn validate_motion(frame: &MotionFrame) -> Result<(), ProtocolError> {
+    validate_session(&frame.session_id)?;
+    if frame.sequence == 0 {
+        return Err(ProtocolError::InvalidField("motion_sequence"));
+    }
+    Ok(())
 }
 
 fn validate_frame(frame: &ControlFrame) -> Result<(), ProtocolError> {
@@ -1210,6 +1269,64 @@ mod tests {
         };
         assert_eq!(gate.accept(&late), Err(ProtocolError::WrongSession));
         assert_eq!(gate.activate(session), Err(ProtocolError::WrongSession));
+    }
+
+    fn motion(sequence: u64, required_reliable_sequence: u64) -> MotionFrame {
+        MotionFrame {
+            session_id: SessionId {
+                controller_boot: boot(1),
+                receiver_boot: boot(2),
+                nonce: [9; 16],
+            },
+            sequence,
+            required_reliable_sequence,
+            x: 1920,
+            y: 1080,
+        }
+    }
+
+    #[test]
+    fn motion_datagram_round_trips_without_stream_prefix() {
+        let frame = motion(7, 4);
+        let encoded = encode_motion(&frame).unwrap();
+        assert!(encoded.len() <= MAX_MOTION_FRAME_BYTES);
+        assert_eq!(decode_motion(&encoded), Ok(frame));
+    }
+
+    #[test]
+    fn motion_datagram_rejects_zero_sequence_and_size_before_decode() {
+        assert_eq!(
+            encode_motion(&motion(0, 0)),
+            Err(ProtocolError::InvalidField("motion_sequence"))
+        );
+        assert_eq!(
+            decode_motion(&vec![0; MAX_MOTION_FRAME_BYTES + 1]),
+            Err(ProtocolError::FrameTooLarge(MAX_MOTION_FRAME_BYTES + 1))
+        );
+    }
+
+    #[test]
+    fn motion_datagram_rejects_wrong_magic_and_major() {
+        let wrong_magic = rmp_serde::to_vec_named(&MotionEnvelope {
+            magic: 0,
+            major: PROTOCOL_MAJOR,
+            frame: motion(1, 0),
+        })
+        .unwrap();
+        assert_eq!(
+            decode_motion(&wrong_magic),
+            Err(ProtocolError::InvalidMagic)
+        );
+        let wrong_major = rmp_serde::to_vec_named(&MotionEnvelope {
+            magic: MOTION_MAGIC,
+            major: PROTOCOL_MAJOR + 1,
+            frame: motion(1, 0),
+        })
+        .unwrap();
+        assert_eq!(
+            decode_motion(&wrong_major),
+            Err(ProtocolError::UnsupportedMajor(PROTOCOL_MAJOR + 1))
+        );
     }
 
     #[test]
