@@ -51,6 +51,7 @@ const MAX_HEALTH_PEERS: usize = 64;
 // Streams (clipboard, files) are handled in spawned tasks; cap the concurrent
 // in-flight count so a burst cannot spawn unbounded copies of a 48MB write.
 const MAX_CONCURRENT_STREAMS: usize = 8;
+const MAX_INBOUND_STREAMS: usize = 8;
 const MAX_CONTROL_CONNECTIONS: usize = 8;
 const CONTROL_QUEUE_FRAMES: usize = 64;
 const MAX_CONTROL_FRAMES_PER_SECOND: u32 = 128;
@@ -1168,6 +1169,7 @@ fn spawn_accept_loop(
     on_input_closed: InputClosedHandler,
 ) {
     let generations = Arc::new(AtomicU64::new(1));
+    let inbound_stream_slots = Arc::new(tokio::sync::Semaphore::new(MAX_INBOUND_STREAMS));
     tokio::spawn(async move {
         while let Some(incoming) = endpoint.accept().await {
             let remote = incoming.remote_address();
@@ -1177,6 +1179,7 @@ fn spawn_accept_loop(
             let on_input = Arc::clone(&on_input);
             let on_input_closed = Arc::clone(&on_input_closed);
             let trust_store = trust_store.clone();
+            let inbound_stream_slots = Arc::clone(&inbound_stream_slots);
             let generation = generations.fetch_add(1, Ordering::Relaxed);
 
             tokio::spawn(async move {
@@ -1197,6 +1200,7 @@ fn spawn_accept_loop(
                             on_control,
                             on_input,
                             on_input_closed,
+                            inbound_stream_slots,
                         );
                     }
                     Err(error) => {
@@ -1257,6 +1261,7 @@ fn spawn_stream_reader(
     on_control: ControlHandler,
     on_input: InputHandler,
     on_input_closed: InputClosedHandler,
+    inbound_stream_slots: Arc<tokio::sync::Semaphore>,
 ) {
     let control_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let input_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1264,6 +1269,12 @@ fn spawn_stream_reader(
         loop {
             match connection.accept_bi().await {
                 Ok((mut send, mut recv)) => {
+                    let Ok(stream_permit) = Arc::clone(&inbound_stream_slots).try_acquire_owned()
+                    else {
+                        let _ = send.finish();
+                        let _ = recv.stop(0_u32.into());
+                        continue;
+                    };
                     let on_stream = Arc::clone(&on_stream);
                     let on_control = Arc::clone(&on_control);
                     let on_input = Arc::clone(&on_input);
@@ -1273,6 +1284,7 @@ fn spawn_stream_reader(
                     let control_active = Arc::clone(&control_active);
                     let input_active = Arc::clone(&input_active);
                     tokio::spawn(async move {
+                        let _stream_permit = stream_permit;
                         let mut preface = [0_u8; 4];
                         if let Err(error) = recv.read_exact(&mut preface).await {
                             log::warn!("QUIC stream preface read failed: {error}");
@@ -1340,7 +1352,10 @@ fn spawn_stream_reader(
                                 complete.extend_from_slice(&payload);
                                 let was_unauthenticated =
                                     matches!(peer, ConnectionPeer::Unauthenticated { .. });
-                                let accepted = on_stream(complete, peer);
+                                let accepted =
+                                    tokio::task::spawn_blocking(move || on_stream(complete, peer))
+                                        .await
+                                        .unwrap_or(false);
                                 let ack: &[u8] = if accepted { b"ok" } else { b"reject" };
                                 let _ = send.write_all(ack).await;
                                 let _ = send.finish();
@@ -1852,6 +1867,18 @@ mod tests {
             !peer_fast_fail_active(&health, addr),
             "one successful send clears the fast-fail state"
         );
+    }
+
+    #[test]
+    fn inbound_stream_budget_rejects_excess_work_and_recovers() {
+        let slots = Arc::new(tokio::sync::Semaphore::new(MAX_INBOUND_STREAMS));
+        let mut permits = Vec::new();
+        for _ in 0..MAX_INBOUND_STREAMS {
+            permits.push(Arc::clone(&slots).try_acquire_owned().unwrap());
+        }
+        assert!(Arc::clone(&slots).try_acquire_owned().is_err());
+        permits.pop();
+        assert!(Arc::clone(&slots).try_acquire_owned().is_ok());
     }
 
     fn make_cert() -> CertificateDer<'static> {
@@ -2402,6 +2429,128 @@ mod tests {
         let (closed_peer, reason) = closed_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         assert_eq!(closed_peer.peer_id, "controller-a");
         assert!(reason.contains("closed"));
+        controller.shutdown();
+        receiver.shutdown();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn blocked_bulk_handlers_do_not_starve_critical_input() {
+        let suffix = format!("{}-bulk-fairness", std::process::id());
+        let root = std::env::temp_dir().join(format!("mykvm-input-loopback-{suffix}"));
+        let controller_dir = root.join("controller");
+        let receiver_dir = root.join("receiver");
+        let controller_identity = load_or_create_identity(&controller_dir).unwrap();
+        let receiver_identity = load_or_create_identity(&receiver_dir).unwrap();
+        let port = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let (bulk_started_tx, bulk_started_rx) = mpsc::channel();
+        let (bulk_release_tx, bulk_release_rx) = mpsc::channel();
+        let bulk_release_rx = Arc::new(Mutex::new(bulk_release_rx));
+        let (input_tx, input_rx) = mpsc::channel();
+        let receiver = start(
+            port,
+            receiver_dir,
+            TrustedPeerRegistry::new(vec![TrustedPeer {
+                peer_id: "controller-a".into(),
+                certificate: controller_identity.public_key,
+                role: PeerRole::Controller,
+                trust_revision: 1,
+            }])
+            .unwrap(),
+            Arc::new(|_, _| {}),
+            Arc::new(move |_, _| {
+                let _ = bulk_started_tx.send(());
+                bulk_release_rx
+                    .lock()
+                    .ok()
+                    .and_then(|receiver| receiver.recv_timeout(Duration::from_secs(2)).ok())
+                    .is_some()
+            }),
+            Arc::new(|_, _| None),
+            Arc::new(move |frame, _| input_tx.send(frame).is_ok()),
+            Arc::new(|_, _| {}),
+        )
+        .unwrap();
+        let controller = start(
+            port.saturating_add(64),
+            controller_dir,
+            TrustedPeerRegistry::new(vec![TrustedPeer {
+                peer_id: "receiver-a".into(),
+                certificate: receiver_identity.public_key.clone(),
+                role: PeerRole::Receiver,
+                trust_revision: 1,
+            }])
+            .unwrap(),
+            Arc::new(|_, _| {}),
+            Arc::new(|_, _| false),
+            Arc::new(|_, _| None),
+            Arc::new(|_, _| false),
+            Arc::new(|_, _| {}),
+        )
+        .unwrap();
+        let endpoint = controller.peer(
+            format!("127.0.0.1:{}", receiver.port()),
+            receiver_identity.public_key,
+            PROTOCOL_VERSION,
+        );
+        let mut bulk_threads = Vec::new();
+        for marker in [1_u8, 2] {
+            let controller = controller.clone();
+            let endpoint = endpoint.clone();
+            bulk_threads.push(thread::spawn(move || {
+                controller.send_stream_expect_ack(endpoint, vec![marker; 1024])
+            }));
+        }
+        bulk_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        bulk_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+
+        let peer = controller
+            .control_peer(
+                "receiver-a",
+                PeerRole::Receiver,
+                format!("127.0.0.1:{}", receiver.port()),
+                PROTOCOL_VERSION,
+            )
+            .unwrap();
+        let input = controller.open_input(peer).unwrap();
+        input
+            .try_send(&CriticalFrame {
+                session_id: protocol_v2::SessionId {
+                    controller_boot: protocol_v2::BootId([1; 16]),
+                    receiver_boot: protocol_v2::BootId([2; 16]),
+                    nonce: [3; 16],
+                },
+                sequence: 1,
+                event: protocol_v2::CriticalEvent::Key {
+                    key_code: 65,
+                    scan_code: 30,
+                    extended: false,
+                    down: true,
+                },
+            })
+            .unwrap();
+        assert_eq!(
+            input_rx
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap()
+                .sequence,
+            1
+        );
+
+        bulk_release_tx.send(()).unwrap();
+        bulk_release_tx.send(()).unwrap();
+        for thread in bulk_threads {
+            thread.join().unwrap().unwrap();
+        }
+        drop(input);
         controller.shutdown();
         receiver.shutdown();
         let _ = fs::remove_dir_all(root);
