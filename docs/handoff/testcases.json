@@ -62,7 +62,8 @@
       "method": "系统热键+钩子双入口与 repeat",
       "expected": "一次物理组合只派发一次动作",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T09-windows-control-hotkeys.md", "game_mode::tests::a05_system_and_hook_press_dispatch_once_until_release"]
     },
     {
       "id": "A06",
@@ -71,7 +72,8 @@
       "method": "远端已经持有 Ctrl/Alt 后识别返回键",
       "expected": "消费控制触发键，释放已转发修饰键",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T09-windows-control-hotkeys.md", "session_runtime::tests::a06_return_releases_hotkey_prefix_modifiers"]
     },
     {
       "id": "A07",
@@ -297,7 +299,9 @@
       "method": "FakePort 延迟+调用白名单/代码审查",
       "expected": "回调不等待网络、GUI、磁盘；FFI 不展开 panic",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": ["../T09-windows-control-hotkeys.md", "scripts/fork-isolation.test.mjs T04.b3"],
+      "remaining": "T10 must remove or prove bounded hook-side context/layout locking and complete the FFI panic boundary review."
     },
     {
       "id": "A29",

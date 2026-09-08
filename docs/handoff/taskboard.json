@@ -700,18 +700,22 @@
       "review_focus": [
         "在 Mac 写真实 Windows 代码；不能只用 FakeHotkey 实现交差"
       ],
-      "implementation": "todo",
+      "implementation": "in_progress",
       "review": "pending",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "partial_pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
         "windows_build": "not_run",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
-      "blocked_reason": null
+      "evidence": [
+        "../T09-windows-control-hotkeys.md",
+        "implementation SHA 9aed9a81aa928ad67ba2bf298d49b63027b44dd6",
+        ".local-evidence/t09c-postcommit.log"
+      ],
+      "blocked_reason": "A28 remains for T10; Windows build target is unavailable; controller gate also waits for T11."
     },
     {
       "id": "T10",

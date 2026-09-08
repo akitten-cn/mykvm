@@ -132,3 +132,9 @@ Windows 生产路径在激活后发送首帧，并在原物理 delta 累计路�
 A26 使用真实本机 QUIC 回环：两个 bulk handler 同时阻塞时，持久可靠 input 仍在断言期限内到达。bulk handler 移到有界 blocking pool，接收端全局最多 8 个活跃 stream task；预算耗尽/恢复、帧尺寸上限和未认证连接拒绝分别由现有测试覆盖。这里不宣称真实网络 QoS。
 
 最终实现 SHA `5d8bdb104139738bb7f7c9cfece3391019fe41d1` 的 `t08-postcommit` 检查退出码 0：191 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查通过。A22–A27 更新为 pass。A29 仍为 not_run：协议尚未携带/校验 display_id 和 layout_revision，T08 父任务保持 in_progress。
+
+## T09 控制热键增量
+
+A05 以共享原子去重器覆盖系统入口、hook 入口和自动重复；释放前不会二次派发。A06 在接收端先注入 Ctrl/Alt down，再处理 EndSession，断言两个修饰键均按账本逆序提交真实 up。另有纯测试覆盖返回与紧急返回精确修饰键区分、当前选中远端显示器解析、客户端不注册及快捷键冲突拒绝。
+
+实现 SHA `9aed9a81aa928ad67ba2bf298d49b63027b44dd6` 的 `t09c-postcommit` 检查退出码 0：198 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和相关格式检查通过。A28 仍为 not_run，已有源码审查部分证据；Windows hook 快速路径的锁与 FFI 边界在 T10 完成。W01 保持 pending_environment，未执行 Windows 或 LOL 实机。

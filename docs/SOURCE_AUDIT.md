@@ -69,3 +69,9 @@ Windows 原有低级键鼠 hook 和热键/贴边入口已接到独立 V2 control
 生产 ReceiverSessionRuntime 已直接消费 TLS 认证连接上的 MKM2 datagram，绑定完整 AuthenticatedPeer 和活动 SessionId。可靠按钮/滚轮携带的位置先应用并推进 motion floor，依赖未来 reliable sequence 的 datagram 只保留最新一帧。Windows 端每个物理 delta 先累计进远端绝对坐标，再交给单槽调度；控制端 runtime 统一写入序列依赖。
 
 复核接收路径发现 generic bulk handler 会同步占用仅两个 QUIC async worker，且跨连接没有全局 stream task 上限。现由 8 个全局入站 permit 限制活跃 stream，bulk handler 转入 blocking pool；真实回环用两个阻塞 bulk handler 验证 input stream 仍推进。协议仍缺详细设计要求的 display_id/layout_revision，因此 A29 和 T08 父任务没有标记完成。
+
+## T09 控制热键增量核验
+
+原 Windows hook 只有方向切屏返回，系统全局快捷键也只处理按下事件。现新增三个持久化控制动作并同时接收按下/释放，两个入口共享同一去重状态。返回和紧急返回在捕获线程协调锁之前设置 Router 使用的原子本地门控，随后用不同 ReturnReason 结束会话；接收端 pressed-state 会释放已转发的热键修饰键。
+
+控制端原来向 Router 永久传入 `keys_released=false`，现由 Windows 捕获线程轮询完整虚拟键范围后传入实际结果。`WindowsV2FocusPort` 仍返回 Unavailable，编译期控制端门禁保持关闭。hook 仍读取共享 context/layout 并执行少量 Windows FFI；A28 的严格快速路径审查必须在 T10 完成，不能将本次纯逻辑与 Mac 编译结果视为 Windows hook 已通过。
