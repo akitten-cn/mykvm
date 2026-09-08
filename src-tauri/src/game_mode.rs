@@ -1,7 +1,7 @@
 use crate::routing::LocalOverride;
 use std::sync::{
     atomic::{AtomicBool, AtomicU8, Ordering},
-    Mutex,
+    Mutex, OnceLock,
 };
 
 static LOCAL_GAME_MODE: AtomicBool = AtomicBool::new(false);
@@ -16,6 +16,24 @@ pub fn local_game_mode_enabled() -> bool {
 
 fn game_mode_enabled(mode: &AtomicBool) -> bool {
     mode.load(Ordering::Acquire)
+}
+
+fn focus_fault_slot() -> &'static Mutex<Option<String>> {
+    static SLOT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+pub fn set_focus_fault(detail: Option<String>) {
+    if let Ok(mut fault) = focus_fault_slot().lock() {
+        *fault = detail;
+    }
+}
+
+pub fn focus_fault() -> Option<String> {
+    focus_fault_slot()
+        .lock()
+        .ok()
+        .and_then(|fault| fault.clone())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

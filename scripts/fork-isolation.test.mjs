@@ -85,9 +85,19 @@ test('T04.b3: incomplete Windows controller stays compile-time closed', () => {
   const input = read('src-tauri/src/input.rs')
   assert.match(input, /controller\.poll\([\s\S]*?windows_control_inputs_released\(\),[\s\S]*?&mut capture,[\s\S]*?&mut focus/)
   assert.match(input, /fn windows_control_inputs_released\(\)[\s\S]*?GetAsyncKeyState/)
-  assert.match(input, /impl FocusPort for WindowsV2FocusPort[\s\S]*?Err\(PortError::Unavailable\)/)
+  assert.match(input, /impl FocusPort for WindowsV2FocusPort[\s\S]*?prepare_windows_focus\(self\.context\)/)
   assert.match(input, /fn send_v2_windows_motion[\s\S]*?controller\.send_motion/)
   assert.match(input, /v2_motion_sequence[\s\S]*?store\(sequence, Ordering::Release\)/)
+})
+
+test('A09: Windows focus handoff is one-shot and reports conservative fallback', () => {
+  const input = read('src-tauri/src/input.rs')
+  const body = input.match(/fn prepare_windows_focus\([\s\S]*?\n\}/)?.[0]
+  assert.ok(body, 'focus adapter is present')
+  assert.equal((body.match(/SetForegroundWindow/g) ?? []).length, 2)
+  assert.doesNotMatch(body, /loop\s*\{|while\s|sleep\(|SendInput|keybd_event/)
+  assert.match(body, /Alt\+Tab/)
+  assert.match(input, /fn restore_windows_foreground\([\s\S]*?previous_foreground\.swap\([\s\S]*?SetForegroundWindow/)
 })
 
 test('A08/A28: Windows local game hooks bypass context and contain panics', () => {

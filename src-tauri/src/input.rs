@@ -11,6 +11,9 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_os = "windows")]
+use std::sync::atomic::AtomicIsize;
+
 use crate::{
     control_ports::{InjectorPort, PortError},
     quic_transport,
@@ -1386,6 +1389,17 @@ fn start_platform_capture(
         } else {
             None
         };
+        let focus_window = if controller_v2 {
+            match create_windows_focus_sink() {
+                Ok(window) => window,
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error));
+                    return;
+                }
+            }
+        } else {
+            0
+        };
         let (hook_events, hook_event_receiver) = mpsc::sync_channel(1024);
         let context = Arc::new(WindowsCaptureContext {
             quic_transport,
@@ -1403,6 +1417,8 @@ fn start_platform_capture(
             local_override,
             control_hotkey_bindings: hotkey_bindings,
             hook_events,
+            focus_window,
+            previous_foreground: AtomicIsize::new(0),
             anchor: Mutex::new(None),
             last_point: Mutex::new(None),
             last_mouse_move_sent: Mutex::new(None),
@@ -1433,6 +1449,7 @@ fn start_platform_capture(
             context.remote_active.store(false, Ordering::Relaxed);
             clear_clipboard_target(&context.clipboard_target);
             clear_windows_capture_context();
+            destroy_windows_focus_sink(context.focus_window);
             let _ = ready_tx.send(Err("failed to install Windows mouse hook".into()));
             return;
         }
@@ -1452,6 +1469,7 @@ fn start_platform_capture(
             context.remote_active.store(false, Ordering::Relaxed);
             clear_clipboard_target(&context.clipboard_target);
             clear_windows_capture_context();
+            destroy_windows_focus_sink(context.focus_window);
             let _ = ready_tx.send(Err("failed to install Windows keyboard hook".into()));
             return;
         }
@@ -1491,6 +1509,7 @@ fn start_platform_capture(
             let _ = UnhookWindowsHookEx(keyboard_hook);
         }
         release_windows_remote_control(&context, true);
+        destroy_windows_focus_sink(context.focus_window);
         context.remote_active.store(false, Ordering::Relaxed);
         clear_clipboard_target(&context.clipboard_target);
         clear_windows_capture_context();
@@ -2936,6 +2955,8 @@ struct WindowsCaptureContext {
     local_override: Arc<crate::routing::LocalOverride>,
     control_hotkey_bindings: [Option<ControlHotkeyBinding>; 3],
     hook_events: mpsc::SyncSender<WindowsHookEvent>,
+    focus_window: isize,
+    previous_foreground: AtomicIsize,
     anchor: Mutex<Option<(f64, f64)>>,
     last_point: Mutex<Option<(f64, f64)>>,
     last_mouse_move_sent: Mutex<Option<Instant>>,
@@ -3065,14 +3086,99 @@ impl CapturePort for WindowsV2CapturePort<'_> {
 }
 
 #[cfg(target_os = "windows")]
-struct WindowsV2FocusPort;
+struct WindowsV2FocusPort<'a> {
+    context: &'a WindowsCaptureContext,
+}
 
 #[cfg(target_os = "windows")]
-impl FocusPort for WindowsV2FocusPort {
+impl FocusPort for WindowsV2FocusPort<'_> {
     fn prepare_focus(&mut self) -> Result<(), PortError> {
-        // T11 supplies the one-shot native focus receiver. Until then the
-        // production path must never claim focus preparation succeeded.
-        Err(PortError::Unavailable)
+        prepare_windows_focus(self.context)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn create_windows_focus_sink() -> Result<isize, String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, ShowWindow, SW_SHOWNOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
+    };
+
+    let class = "STATIC\0".encode_utf16().collect::<Vec<_>>();
+    let title = "MyKVM Input\0".encode_utf16().collect::<Vec<_>>();
+    let window = unsafe {
+        CreateWindowExW(
+            WS_EX_TOOLWINDOW,
+            class.as_ptr(),
+            title.as_ptr(),
+            WS_POPUP,
+            -32_000,
+            -32_000,
+            1,
+            1,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        )
+    };
+    if window.is_null() {
+        return Err("无法创建 Windows 轻量焦点窗口。请先按 Alt+Tab 离开游戏后重试。".into());
+    }
+    unsafe {
+        let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
+    }
+    Ok(window as isize)
+}
+
+#[cfg(target_os = "windows")]
+fn destroy_windows_focus_sink(window: isize) {
+    if window != 0 {
+        unsafe {
+            let _ = windows_sys::Win32::UI::WindowsAndMessaging::DestroyWindow(window as _);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn prepare_windows_focus(context: &WindowsCaptureContext) -> Result<(), PortError> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
+
+    crate::game_mode::set_focus_fault(None);
+    if !cached_windows_input_desktop_is_default() || context.focus_window == 0 {
+        crate::game_mode::set_focus_fault(Some(
+            "无法准备 Windows 焦点。请先按 Alt+Tab 离开游戏后再使用“控制 Mac”。".into(),
+        ));
+        return Err(PortError::Unavailable);
+    }
+    let sink = context.focus_window as _;
+    let previous = unsafe { GetForegroundWindow() };
+    if previous.is_null() || unsafe { SetForegroundWindow(sink) } == 0 {
+        crate::game_mode::set_focus_fault(Some(
+            "Windows 拒绝了焦点交接，已保留本机控制。请先按 Alt+Tab 离开游戏后重试。".into(),
+        ));
+        return Err(PortError::Unavailable);
+    }
+    if unsafe { GetForegroundWindow() } != sink {
+        crate::game_mode::set_focus_fault(Some(
+            "Windows 焦点交接未生效，已保留本机控制。请先按 Alt+Tab 离开游戏后重试。".into(),
+        ));
+        return Err(PortError::Unavailable);
+    }
+    context
+        .previous_foreground
+        .store(previous as isize, Ordering::Release);
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn restore_windows_foreground(context: &WindowsCaptureContext) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IsWindow, SetForegroundWindow};
+
+    let previous = context.previous_foreground.swap(0, Ordering::AcqRel);
+    if previous != 0 && unsafe { IsWindow(previous as _) } != 0 {
+        unsafe {
+            let _ = SetForegroundWindow(previous as _);
+        }
     }
 }
 
@@ -3082,6 +3188,7 @@ fn begin_v2_controller_windows(
     active: ActiveTarget,
     crossed_edge: bool,
 ) -> bool {
+    crate::game_mode::set_focus_fault(None);
     let Some(controller) = &context.v2_controller else {
         return false;
     };
@@ -3156,7 +3263,7 @@ fn drain_v2_controller_windows(context: &WindowsCaptureContext) {
         context,
         candidate: None,
     };
-    let mut focus = WindowsV2FocusPort;
+    let mut focus = WindowsV2FocusPort { context };
     if let Err(error) = controller.poll(
         context
             .v2_epoch
@@ -3929,6 +4036,7 @@ fn restore_windows_capture_state(context: &WindowsCaptureContext, clear_clipboar
     context.just_crossed.store(false, Ordering::Relaxed);
     reset_mouse_move_timer(&context.last_mouse_move_sent);
     show_windows_cursor_if_needed(context);
+    restore_windows_foreground(context);
     if let Ok(mut anchor) = context.anchor.lock() {
         *anchor = None;
     }

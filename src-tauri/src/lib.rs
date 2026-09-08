@@ -667,6 +667,14 @@ impl AppRuntime {
                 };
             }
         }
+        if controller_client::controller_mode_enabled(&layout.machine_role, &layout.input_mode) {
+            if let Some(detail) = game_mode::focus_fault() {
+                runtime.capture = NativeStageStatus {
+                    state: "error".into(),
+                    detail,
+                };
+            }
+        }
 
         runtime
     }
@@ -1576,6 +1584,7 @@ impl AppRuntime {
 
     fn stop_input(&self) {
         self.controller_local_override.request_local();
+        game_mode::set_focus_fault(None);
         self.input_receive_enabled.store(false, Ordering::Relaxed);
         if let Ok(mut stop) = self.input_stop.lock() {
             if let Some(signal) = stop.take() {
