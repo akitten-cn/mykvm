@@ -1470,17 +1470,21 @@
       "review_focus": [
         "task implementation可指脚本实现完成，windows_build仍必须独立显示未完成"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../T23-windows-preview.md",
+        "implementation SHA c1ae061e4384392e796378a4b0d3dc931dc09549",
+        ".local-evidence/t23-postcommit.log"
+      ],
       "blocked_reason": null
     },
     {

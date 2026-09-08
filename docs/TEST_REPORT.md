@@ -35,6 +35,10 @@
 
 SHA `7ac6d87cc26ae17a4a465c05435230e182075fb0` 的 `scripts/build-mac-arm.sh` 退出码 0，生成约 17 MiB 的 ARM64 app 与约 6.6 MiB 的 UDZO DMG。`file` 确认主程序为 Mach-O arm64，`hdiutil verify` 确认 DMG 校验有效，M01 更新为 pass。构建使用 `--no-sign`；app 没有完整 bundle 签名或公证，严格 codesign 校验失败并按实际状态记录。未挂载、安装或运行产物。
 
+## T23 Windows 预览准备
+
+SHA `c1ae061e4384392e796378a4b0d3dc931dc09549` 增加原生 Windows PowerShell NSIS 构建和 SHA-256 生成，并在 Windows 2022 CI 上传短期 artifact。Mac 上的 225 个 Rust 测试、22 个隔离测试、前端和库检查继续通过；隔离检查确认脚本不安装 helper、修改信任或创建 Release。当前没有原生 Windows 执行证据，W01/windows_build 保持 `pending_environment`，没有伪造 EXE 路径。
+
 纯核心通过不等于 A01–A04 等端到端用例通过；这些用例保留 not_run 并记录部分证据。认证正反测试、协议回环、真实 Windows 分支编译、可靠释放集成、资源数据均尚未完成。详见 taskboard、testcases 和 SOURCE_AUDIT。
 
 ## T05.b 连接授权增量
