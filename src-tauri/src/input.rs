@@ -1297,7 +1297,10 @@ fn start_platform_capture(
                 local_peer_id,
                 Arc::clone(&local_override),
             ) {
-                Ok(controller) => Some(Mutex::new(controller)),
+                Ok(mut controller) => {
+                    controller.set_game_mode(crate::game_mode::local_game_mode_enabled());
+                    Some(Mutex::new(controller))
+                }
                 Err(error) => {
                     let _ = ready_tx.send(Err(format!(
                         "failed to initialize V2 controller: {error:?}"
@@ -2875,7 +2878,7 @@ struct PendingWindowsTarget {
 #[cfg(target_os = "windows")]
 fn windows_capture_context() -> Option<Arc<WindowsCaptureContext>> {
     WINDOWS_CAPTURE_CONTEXT
-        .lock()
+        .try_lock()
         .ok()
         .and_then(|context| context.clone())
 }
@@ -3354,6 +3357,24 @@ fn set_control_clipboard_target(
 
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn windows_mouse_proc(code: i32, wparam: usize, lparam: isize) -> isize {
+    use windows_sys::Win32::UI::WindowsAndMessaging::CallNextHookEx;
+
+    if crate::game_mode::local_game_mode_enabled() {
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+    }
+    match std::panic::catch_unwind(|| unsafe { windows_mouse_proc_inner(code, wparam, lparam) }) {
+        Ok(result) => result,
+        Err(_) => {
+            if let Some(context) = windows_capture_context() {
+                context.local_override.request_local();
+            }
+            unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn windows_mouse_proc_inner(code: i32, wparam: usize, lparam: isize) -> isize {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, MSLLHOOKSTRUCT, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
         WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_XBUTTONDOWN,
@@ -3367,7 +3388,10 @@ unsafe extern "system" fn windows_mouse_proc(code: i32, wparam: usize, lparam: i
     let Some(context) = windows_capture_context() else {
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
     };
-    if context.v2_controller.is_some() && context.local_override.is_local() {
+    if context.v2_controller.is_some()
+        && context.local_override.is_local()
+        && context.remote_active.load(Ordering::Acquire)
+    {
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
     }
     if !cached_windows_input_desktop_is_default() {
@@ -3399,6 +3423,24 @@ unsafe extern "system" fn windows_mouse_proc(code: i32, wparam: usize, lparam: i
 
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn windows_keyboard_proc(code: i32, wparam: usize, lparam: isize) -> isize {
+    use windows_sys::Win32::UI::WindowsAndMessaging::CallNextHookEx;
+
+    if crate::game_mode::local_game_mode_enabled() {
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+    }
+    match std::panic::catch_unwind(|| unsafe { windows_keyboard_proc_inner(code, wparam, lparam) }) {
+        Ok(result) => result,
+        Err(_) => {
+            if let Some(context) = windows_capture_context() {
+                context.local_override.request_local();
+            }
+            unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn windows_keyboard_proc_inner(code: i32, wparam: usize, lparam: isize) -> isize {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, KBDLLHOOKSTRUCT, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
     };
@@ -6865,6 +6907,7 @@ mod tests {
             edge_switch_hotkey: crate::default_edge_switch_hotkey(),
             screen_switch_hotkeys: crate::ScreenSwitchHotkeys::default(),
             control_hotkeys: crate::ControlHotkeys::default(),
+            game_mode: false,
         }
     }
 

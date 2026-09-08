@@ -38,6 +38,7 @@ export const defaultLayout: LayoutState = {
     returnWindows: 'control+alt+F10',
     emergencyReturn: 'control+alt+shift+F10',
   },
+  gameMode: false,
   devices: [
     {
       id: 'local-device',

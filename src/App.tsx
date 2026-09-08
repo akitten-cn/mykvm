@@ -1393,6 +1393,13 @@ function App() {
     }
   }
 
+  function setGameMode(gameMode: boolean) {
+    updateLayout((layoutState) => ({
+      ...layoutState,
+      gameMode,
+    }));
+  }
+
   function setEdgeSwitchHotkey(edgeSwitchHotkey: string) {
     updateLayout((layoutState) => ({
       ...layoutState,
@@ -2619,6 +2626,33 @@ function App() {
                 </div>
                 {machineRole === "server" ? (
                   <>
+                    <div className="settings-control-row">
+                      <span>
+                        {ui.settings.localInputMode}
+                        <span className="info-tooltip-host" tabIndex={0}>
+                          ⓘ
+                          <span className="info-tooltip">
+                            {ui.settings.gameModeCopy}
+                          </span>
+                        </span>
+                      </span>
+                      <div className="segmented-control">
+                        <button
+                          type="button"
+                          className={!layout.gameMode ? "active" : ""}
+                          onClick={() => setGameMode(false)}
+                        >
+                          {ui.settings.desktopMode}
+                        </button>
+                        <button
+                          type="button"
+                          className={layout.gameMode ? "active" : ""}
+                          onClick={() => setGameMode(true)}
+                        >
+                          {ui.settings.gameMode}
+                        </button>
+                      </div>
+                    </div>
                     <div className="settings-control-row">
                       <span>{ui.settings.edgeSwitchHotkey}</span>
                       <button

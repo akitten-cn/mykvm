@@ -92,4 +92,5 @@ export interface LayoutState {
   edgeSwitchHotkey: string
   screenSwitchHotkeys: ScreenSwitchHotkeys
   controlHotkeys: ControlHotkeys
+  gameMode: boolean
 }

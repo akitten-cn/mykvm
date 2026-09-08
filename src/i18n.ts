@@ -64,6 +64,11 @@ export const TEXT = {
       autostart: "开机自启",
       autostartOn: "开启",
       autostartOff: "关闭",
+      localInputMode: "本地输入模式",
+      desktopMode: "桌面模式",
+      gameMode: "游戏模式",
+      gameModeCopy:
+        "游戏模式关闭贴边切换，并让本地键鼠走最短放行路径。仍可使用“控制 Mac”全局快捷键进入远端。",
       edgeSwitchHotkey: "快捷启停",
       edgeSwitchHotkeyRecording: "按下启停快捷键...",
       screenSwitchTitle: "快捷切屏",
@@ -299,6 +304,11 @@ export const TEXT = {
       autostart: "Launch at startup",
       autostartOn: "On",
       autostartOff: "Off",
+      localInputMode: "Local input mode",
+      desktopMode: "Desktop",
+      gameMode: "Game",
+      gameModeCopy:
+        "Game mode disables edge switching and uses the shortest local keyboard and mouse pass-through. The global Control Mac shortcut remains available.",
       edgeSwitchHotkey: "Quick toggle",
       edgeSwitchHotkeyRecording: "Press start/stop shortcut...",
       screenSwitchTitle: "Quick switch",

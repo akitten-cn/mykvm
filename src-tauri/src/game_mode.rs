@@ -1,8 +1,22 @@
 use crate::routing::LocalOverride;
 use std::sync::{
-    atomic::{AtomicU8, Ordering},
+    atomic::{AtomicBool, AtomicU8, Ordering},
     Mutex,
 };
+
+static LOCAL_GAME_MODE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_local_game_mode(enabled: bool) {
+    LOCAL_GAME_MODE.store(enabled, Ordering::Release);
+}
+
+pub fn local_game_mode_enabled() -> bool {
+    game_mode_enabled(&LOCAL_GAME_MODE)
+}
+
+fn game_mode_enabled(mode: &AtomicBool) -> bool {
+    mode.load(Ordering::Acquire)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ControlHotkeyAction {
@@ -166,5 +180,17 @@ mod tests {
         ));
         assert!(local.is_local());
         assert_eq!(pending.take(), Some(ControlHotkeyAction::EmergencyLocal));
+    }
+
+    #[test]
+    fn a08_local_game_check_never_calls_heavy_path() {
+        let mode = AtomicBool::new(true);
+        let heavy_calls = std::sync::atomic::AtomicUsize::new(0);
+        for _ in 0..50_000 {
+            if !game_mode_enabled(&mode) {
+                heavy_calls.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        assert_eq!(heavy_calls.load(Ordering::Relaxed), 0);
     }
 }

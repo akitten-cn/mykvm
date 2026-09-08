@@ -270,6 +270,8 @@ struct LayoutState {
     screen_switch_hotkeys: ScreenSwitchHotkeys,
     #[serde(default)]
     control_hotkeys: ControlHotkeys,
+    #[serde(default)]
+    game_mode: bool,
 }
 
 /// Cross-platform modifier remapping. Each field names the *logical* modifier
@@ -577,6 +579,7 @@ impl AppRuntime {
         let layout = load_layout_from_disk(&config_path)
             .map(|saved_layout| normalize_saved_layout(saved_layout, detected_layout.clone()))
             .unwrap_or_else(|| detected_layout.clone());
+        game_mode::set_local_game_mode(layout.game_mode);
         Self {
             app_handle,
             layout: Arc::new(Mutex::new(layout)),
@@ -1649,6 +1652,13 @@ fn save_layout(
         *stored_layout = saved_layout.clone();
         (previous_layout, saved_layout)
     };
+    game_mode::set_local_game_mode(saved_layout.game_mode);
+    if saved_layout.game_mode && !previous_layout.game_mode {
+        state.controller_local_override.request_local();
+        state
+            .control_action
+            .offer(game_mode::ControlHotkeyAction::GoLocal);
+    }
 
     if runtime_relevant_layout_changed(&previous_layout, &saved_layout) {
         if previous_layout.transport_port_mode != saved_layout.transport_port_mode
@@ -4434,6 +4444,7 @@ fn detect_local_layout(app: &AppHandle) -> LayoutState {
         edge_switch_hotkey: default_edge_switch_hotkey(),
         screen_switch_hotkeys: ScreenSwitchHotkeys::default(),
         control_hotkeys: ControlHotkeys::default(),
+        game_mode: false,
         devices: vec![Device {
             id: device_id,
             name: local_device_name(),
@@ -4479,6 +4490,7 @@ fn detect_fallback_layout() -> LayoutState {
         edge_switch_hotkey: default_edge_switch_hotkey(),
         screen_switch_hotkeys: ScreenSwitchHotkeys::default(),
         control_hotkeys: ControlHotkeys::default(),
+        game_mode: false,
     }
 }
 
@@ -4594,6 +4606,7 @@ fn normalize_saved_layout(saved_layout: LayoutState, detected_layout: LayoutStat
         edge_switch_hotkey: normalize_edge_switch_hotkey(&saved_layout.edge_switch_hotkey),
         screen_switch_hotkeys: saved_layout.screen_switch_hotkeys.clone(),
         control_hotkeys: saved_layout.control_hotkeys.clone(),
+        game_mode: saved_layout.game_mode,
     }
 }
 
@@ -7677,6 +7690,7 @@ mod tests {
             edge_switch_hotkey: default_edge_switch_hotkey(),
             screen_switch_hotkeys: ScreenSwitchHotkeys::default(),
             control_hotkeys: ControlHotkeys::default(),
+            game_mode: false,
         }
     }
 

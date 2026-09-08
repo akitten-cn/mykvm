@@ -89,3 +89,12 @@ test('T04.b3: incomplete Windows controller stays compile-time closed', () => {
   assert.match(input, /fn send_v2_windows_motion[\s\S]*?controller\.send_motion/)
   assert.match(input, /v2_motion_sequence[\s\S]*?store\(sequence, Ordering::Release\)/)
 })
+
+test('A08/A28: Windows local game hooks bypass context and contain panics', () => {
+  const gameMode = read('src-tauri/src/game_mode.rs')
+  assert.match(gameMode, /static LOCAL_GAME_MODE: AtomicBool/)
+  const input = read('src-tauri/src/input.rs')
+  assert.match(input, /fn windows_mouse_proc\([\s\S]*?local_game_mode_enabled\(\)[\s\S]*?CallNextHookEx[\s\S]*?catch_unwind[\s\S]*?windows_mouse_proc_inner/)
+  assert.match(input, /fn windows_keyboard_proc\([\s\S]*?local_game_mode_enabled\(\)[\s\S]*?CallNextHookEx[\s\S]*?catch_unwind[\s\S]*?windows_keyboard_proc_inner/)
+  assert.match(input, /Err\(_\)[\s\S]*?local_override\.request_local\(\)[\s\S]*?CallNextHookEx/)
+})
