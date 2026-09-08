@@ -6753,6 +6753,9 @@ fn unicast_sweep_targets_for_ips(port: u16, local_ips: &[Ipv4Addr]) -> Vec<Strin
 /// startup does not block on commands that cannot succeed.
 #[cfg(target_os = "windows")]
 fn ensure_windows_firewall_rule() {
+    if !crate::fork_policy::PRIVILEGED_FEATURES_ENABLED {
+        return;
+    }
     if WINDOWS_FIREWALL_ENSURED.swap(true, Ordering::Relaxed) {
         return;
     }

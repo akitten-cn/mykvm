@@ -43,6 +43,7 @@ test('A40: privileged routes fail closed, even when called outside the UI', () =
   assert.match(source, /if !crate::fork_policy::PRIVILEGED_FEATURES_ENABLED/)
   assert.match(read('src-tauri/src/input.rs'), /if !crate::fork_policy::PRIVILEGED_FEATURES_ENABLED/)
   assert.match(read('src-tauri/src/fork_policy.rs'), /PRIVILEGED_FEATURES_ENABLED: bool = false/)
+  assert.match(source, /fn ensure_windows_firewall_rule\(\) \{\s*if !crate::fork_policy::PRIVILEGED_FEATURES_ENABLED \{\s*return;/)
 })
 
 test('A42: single-instance, helper namespace and frontend storage are isolated', () => {
