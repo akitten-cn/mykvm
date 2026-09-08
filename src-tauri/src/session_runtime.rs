@@ -1,11 +1,11 @@
 use crate::{
     control_ports::{submit_ready, InjectorPort, PortError},
+    pressed_state::PressedState,
     protocol_v2::{
-        BootId, ControlFrame, CriticalButton, CriticalEvent, CriticalFrame, DeviceRole,
-        InputSessionGate, ProtocolError, ReceiverHandshake, SessionId,
+        BootId, ControlFrame, CriticalFrame, DeviceRole, InputSessionGate, ProtocolError,
+        ReceiverHandshake, SessionId,
     },
     quic_transport::{AuthenticatedPeer, PeerRole},
-    shared_input::{InputCommand, MouseButton},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,6 +27,7 @@ pub struct ReceiverSessionRuntime<I> {
     input_gate: InputSessionGate,
     active_session: Option<SessionId>,
     highest_applied_sequence: u64,
+    pressed: PressedState,
     injector: I,
 }
 
@@ -39,6 +40,7 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
             input_gate: InputSessionGate::new(local_boot),
             active_session: None,
             highest_applied_sequence: 0,
+            pressed: PressedState::default(),
             injector,
         }
     }
@@ -64,6 +66,7 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
             if self.active_session.is_some() {
                 return Err(SessionRuntimeError::WrongConnection);
             }
+            self.release_pressed()?;
             let mut handshake = ReceiverHandshake::new(peer.peer_id.clone(), self.local_boot)
                 .map_err(SessionRuntimeError::Protocol)?;
             let response = handshake
@@ -94,6 +97,11 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
 
         if let Some(ControlFrame::CommitAck { session_id }) = response.as_ref() {
             if self.active_session.is_none() {
+                if !self.pressed.is_empty() {
+                    return Err(SessionRuntimeError::Protocol(
+                        ProtocolError::InvalidTransition,
+                    ));
+                }
                 self.input_gate
                     .activate(*session_id)
                     .map_err(SessionRuntimeError::Protocol)?;
@@ -110,10 +118,8 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
                     .end(*session_id)
                     .map_err(SessionRuntimeError::Protocol)?;
                 self.active_session = None;
-                self.injector
-                    .post_event(InputCommand::ReleaseAll)
-                    .map_err(SessionRuntimeError::Injector)?;
             }
+            self.release_pressed()?;
         }
 
         if let Some(ControlFrame::Pong {
@@ -137,10 +143,19 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
         self.input_gate
             .accept(frame)
             .map_err(SessionRuntimeError::Protocol)?;
-        let command = critical_command(frame);
-        if let Err(error) = submit_ready(&mut self.injector, command) {
-            self.abort_after_injector_failure(frame.session_id);
-            return Err(SessionRuntimeError::Injector(error));
+        let pressed_before = self.pressed.clone();
+        for command in self.pressed.apply(&frame.event) {
+            if let Err(error) = submit_ready(&mut self.injector, command) {
+                if matches!(
+                    frame.event,
+                    crate::protocol_v2::CriticalEvent::Key { down: false, .. }
+                        | crate::protocol_v2::CriticalEvent::Button { down: false, .. }
+                ) {
+                    self.pressed = pressed_before;
+                }
+                self.abort_after_injector_failure(frame.session_id);
+                return Err(SessionRuntimeError::Injector(error));
+            }
         }
         self.highest_applied_sequence = frame.sequence;
         Ok(())
@@ -152,35 +167,34 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
             let _ = handshake.abort_active(session_id);
         }
         self.active_session = None;
-        let _ = self.injector.post_event(InputCommand::ReleaseAll);
+        let _ = self.release_pressed();
+    }
+
+    fn release_pressed(&mut self) -> Result<(), SessionRuntimeError> {
+        let pressed_before = self.pressed.clone();
+        let commands = self.pressed.release_all();
+        let mut first_error = None;
+        for command in commands {
+            if let Err(error) = submit_ready(&mut self.injector, command) {
+                first_error.get_or_insert(SessionRuntimeError::Injector(error));
+            }
+        }
+        if let Some(error) = first_error {
+            self.pressed = pressed_before;
+            Err(error)
+        } else {
+            Ok(())
+        }
     }
 
     #[cfg(test)]
     fn injector(&self) -> &I {
         &self.injector
     }
-}
 
-fn critical_command(frame: &CriticalFrame) -> InputCommand {
-    match frame.event {
-        CriticalEvent::Key { key_code, down, .. } => InputCommand::Key { key_code, down },
-        CriticalEvent::Button {
-            button, down, x, y, ..
-        } => InputCommand::MouseButton {
-            button: match button {
-                CriticalButton::Left => MouseButton::Left,
-                CriticalButton::Right => MouseButton::Right,
-                CriticalButton::Middle => MouseButton::Middle,
-                CriticalButton::Back => MouseButton::Back,
-                CriticalButton::Forward => MouseButton::Forward,
-            },
-            down,
-            x,
-            y,
-        },
-        CriticalEvent::Scroll {
-            delta_x, delta_y, ..
-        } => InputCommand::Scroll { delta_x, delta_y },
+    #[cfg(test)]
+    fn injector_mut(&mut self) -> &mut I {
+        &mut self.injector
     }
 }
 
@@ -188,6 +202,8 @@ fn critical_command(frame: &CriticalFrame) -> InputCommand {
 mod tests {
     use super::*;
     use crate::control_ports::fake::FakeInjector;
+    use crate::protocol_v2::{CriticalButton, CriticalEvent};
+    use crate::shared_input::{InputCommand, MouseButton};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     fn boot(value: u8) -> BootId {
@@ -370,6 +386,21 @@ mod tests {
         let mut runtime = ReceiverSessionRuntime::new(boot(2), FakeInjector::default());
         activate(&mut runtime, &authenticated);
         runtime
+            .handle_input(
+                &CriticalFrame {
+                    session_id: session(),
+                    sequence: 1,
+                    event: CriticalEvent::Key {
+                        key_code: 65,
+                        scan_code: 30,
+                        extended: false,
+                        down: true,
+                    },
+                },
+                &authenticated,
+            )
+            .unwrap();
+        runtime
             .handle_control(
                 &ControlFrame::EndSession {
                     session_id: session(),
@@ -378,10 +409,22 @@ mod tests {
                 &authenticated,
             )
             .unwrap();
-        assert_eq!(runtime.injector().events, vec![InputCommand::ReleaseAll]);
+        assert_eq!(
+            runtime.injector().events,
+            vec![
+                InputCommand::Key {
+                    key_code: 65,
+                    down: true,
+                },
+                InputCommand::Key {
+                    key_code: 65,
+                    down: false,
+                },
+            ]
+        );
         let late = CriticalFrame {
             session_id: session(),
-            sequence: 1,
+            sequence: 2,
             event: CriticalEvent::Key {
                 key_code: 65,
                 scan_code: 30,
@@ -390,7 +433,7 @@ mod tests {
             },
         };
         assert!(runtime.handle_input(&late, &authenticated).is_err());
-        assert_eq!(runtime.injector().events, vec![InputCommand::ReleaseAll]);
+        assert_eq!(runtime.injector().events.len(), 2);
     }
 
     #[test]
@@ -418,6 +461,59 @@ mod tests {
         );
         assert!(runtime.injector().events.is_empty());
         assert!(runtime.handle_input(&frame, &authenticated).is_err());
+    }
+
+    #[test]
+    fn failed_key_up_remains_in_ledger_and_end_retries_release() {
+        let authenticated = peer(10);
+        let mut runtime = ReceiverSessionRuntime::new(boot(2), FakeInjector::default());
+        activate(&mut runtime, &authenticated);
+        let down = CriticalFrame {
+            session_id: session(),
+            sequence: 1,
+            event: CriticalEvent::Key {
+                key_code: 65,
+                scan_code: 30,
+                extended: false,
+                down: true,
+            },
+        };
+        runtime.handle_input(&down, &authenticated).unwrap();
+        runtime.injector_mut().submission_failed = true;
+        let up = CriticalFrame {
+            session_id: session(),
+            sequence: 2,
+            event: CriticalEvent::Key {
+                key_code: 65,
+                scan_code: 30,
+                extended: false,
+                down: false,
+            },
+        };
+        assert!(runtime.handle_input(&up, &authenticated).is_err());
+        runtime.injector_mut().submission_failed = false;
+        runtime
+            .handle_control(
+                &ControlFrame::EndSession {
+                    session_id: session(),
+                    reason: "retry-release".into(),
+                },
+                &authenticated,
+            )
+            .unwrap();
+        assert_eq!(
+            runtime.injector().events,
+            vec![
+                InputCommand::Key {
+                    key_code: 65,
+                    down: true,
+                },
+                InputCommand::Key {
+                    key_code: 65,
+                    down: false,
+                },
+            ]
+        );
     }
 
     #[test]

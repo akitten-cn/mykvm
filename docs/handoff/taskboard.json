@@ -445,8 +445,8 @@
         }
       ]
     },
-    {
-      "id": "T07",
+  {
+    "id": "T07",
       "phase": "P1",
       "title": "实现接收账本、健康与真实释放",
       "depends_on": [
@@ -477,8 +477,8 @@
       "review_focus": [
         "仅清集合不算释放；OS调用返回不等于应用动作执行成功"
       ],
-      "implementation": "todo",
-      "review": "pending",
+    "implementation": "in_progress",
+    "review": "pending",
       "verification": {
         "automated": "not_run",
         "mac_build": "not_run",
@@ -487,8 +487,28 @@
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
-      "blocked_reason": null
+    "evidence": [
+      "../T07a-pressed-state.md"
+    ],
+    "blocked_reason": null,
+    "subtasks": [
+      {
+        "id": "T07.a",
+        "title": "按会话输入账本与真实释放命令",
+        "implementation": "done",
+        "review": "approved",
+        "verification": {
+          "automated": "pass",
+          "scope": "PressedState and ReceiverSessionRuntime tests cover frozen mappings, repeat/reference ownership, normal End, submission failure and release retry with FakeInjector."
+        }
+      },
+      {
+        "id": "T07.b",
+        "title": "断线租约、健康超时与释放失败可见性",
+        "implementation": "todo",
+        "review": "pending"
+      }
+    ]
     },
     {
       "id": "T08",

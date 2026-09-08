@@ -206,7 +206,8 @@
       "method": "按键中修改键位配置后结束",
       "expected": "按 down 时的映射发送 up",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T07a-pressed-state.md", "pressed_state::tests::a19_key_up_uses_mapping_frozen_at_key_down"]
     },
     {
       "id": "A20",
@@ -215,7 +216,8 @@
       "method": "repeat/down 去重与两源键映射同目标",
       "expected": "账本不膨胀、不提前释放目标键",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T07a-pressed-state.md", "pressed_state::tests::a20_repeat_and_two_sources_do_not_release_target_early"]
     },
     {
       "id": "A21",
@@ -224,7 +226,9 @@
       "method": "关键事件处理中途错误",
       "expected": "会话结束、尽力释放、错误可见",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": ["../T07a-pressed-state.md", "session_runtime::tests::injector_failure_aborts_session_and_attempts_release", "session_runtime::tests::failed_key_up_remains_in_ledger_and_end_retries_release"],
+      "remaining": "Injector failure ends and releases; decoder/stream failure must notify the lease runtime in T07.b."
     },
     {
       "id": "A22",

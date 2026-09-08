@@ -62,3 +62,9 @@
 `AppRuntime` 已构造共享接收会话，并把认证 control/input callbacks 接到 QUIC transport；V2-only 启动不再依赖已禁用的旧 UDP discovery。普通用户 `NativeInjector` 在 Ready 和每次提交前只读取当前辅助功能/Secure Input 状态，不主动弹授权。Mac 库回归 157 项通过；应用没有启动，macOS runtime 仍为 not_run。
 
 主进程原有 ReleaseAll 仍为空操作，因此 `V2_NATIVE_RECEIVER_ENABLED` 编译期门禁保持 false。此阶段只能证明生产路径已接线和可编译，不能接收真实输入；T07 完成真实账本和释放后才允许打开。
+
+## T07.a pressed-state 增量
+
+新增 `PressedState`，以物理 scan code/extended 标识输入源，并冻结 key-down 当时的目标 key code。测试证明自动重复不增加所有权、两个物理源映射到同一目标时不会提前 key-up、正常 End 对每个目标只提交一次真实 up、按钮释放使用账本位置。ReceiverSessionRuntime 不再依赖空操作 ReleaseAll，而是逐项经 InjectorPort 提交释放。
+
+故障测试覆盖 key-down/key-up 提交失败：会话立即结束并尽力释放；释放失败时账本恢复，后续重复 End 可重试。A19/A20 标记 pass；A21 只记录注入失败部分证据，因为 decoder/stream 失败仍需 T07.b 的租约通知。断线/健康超时 A18 仍未实现，因此生产接收门禁继续关闭。
