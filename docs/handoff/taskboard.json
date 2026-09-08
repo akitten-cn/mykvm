@@ -247,17 +247,39 @@
             "scope": "16 pure coordinator tests only; production integration T04.b not implemented."
           }
         },
-        {
-          "id": "T04.b",
-          "title": "V2 认证握手与真实平台/IPC 接入",
+    {
+      "id": "T04.b",
+      "title": "V2 认证握手与真实平台/IPC 接入",
           "depends_on": [
             "T04.a",
             "T05",
             "T06"
           ],
+      "implementation": "in_progress",
+      "review": "pending",
+      "verification": {
+        "automated": "pass",
+        "scope": "T04.b1 authenticated receiver session adapter passes with FakeInjector; AppRuntime/native injector startup wiring remains."
+      },
+      "subtasks": [
+        {
+          "id": "T04.b1",
+          "title": "认证接收会话到 InjectorPort 适配",
+          "implementation": "done",
+          "review": "approved",
+          "verification": {
+            "automated": "pass",
+            "scope": "6 FakeInjector tests cover connection binding, ordered dispatch, progress, end/release, replay and readiness/injector failure."
+          }
+        },
+        {
+          "id": "T04.b2",
+          "title": "AppRuntime 与原生端口启动接线",
           "implementation": "todo",
           "review": "pending"
         }
+      ]
+    }
       ]
     },
     {

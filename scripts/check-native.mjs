@@ -15,7 +15,8 @@ const checks = [
   ['web-build', 'npm', ['run', 'build']],
   ['core-format', 'rustfmt', ['--edition', '2021', '--check',
     'src-tauri/src/control_ports.rs', 'src-tauri/src/routing.rs', 'src-tauri/src/fork_policy.rs',
-    'src-tauri/src/protocol_v2.rs', 'src-tauri/src/quic_transport.rs']],
+    'src-tauri/src/protocol_v2.rs', 'src-tauri/src/quic_transport.rs',
+    'src-tauri/src/session_runtime.rs']],
   ['lib-check', 'cargo', ['check', '--manifest-path', 'src-tauri/Cargo.toml', '--locked', '--lib']],
   ['lib-tests', 'cargo', ['test', '--manifest-path', 'src-tauri/Cargo.toml', '--locked', '--lib']],
 ]

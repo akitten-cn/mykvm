@@ -52,3 +52,7 @@
 协议门控测试拒绝旧 receiver boot、结束后的帧与同会话复活、乱序/重复序列、空键码和序列空间耗尽。当前 `AppRuntime` 仍传入空 input handler，所以这些结果只证明传输及会话边界；没有调用 FakeInjector 或真实系统输入。A16/A17/A22 保留 not_run，并将已有证据记录为 partial，等待 T04.b/T07 贯通后完成端到端断言。
 
 提交后复核记录 SHA `9c887bb5cf4ced1e6ae20e1d676a5ed4ba5a7551`，8 个检查步骤退出码均为 0，日志为本地 `.local-evidence/t06c-postcommit.log`。
+
+## T04.b1 接收会话适配器增量
+
+新增 6 项 FakeInjector 测试，把 TLS 认证产生的完整 `AuthenticatedPeer` 绑定到 control 和 input：不同连接代次不能提交输入；Ready 前检查 injector；Commit 后严格按序提交；Pong 报告最高已提交序列；重复 Commit 不重置序列；End 先关闭 gate 再请求 ReleaseAll。注入失败会使握手和 input gate 一起进入结束态并尽力 ReleaseAll。测试没有读取或操作真实桌面。

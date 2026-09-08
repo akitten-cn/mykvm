@@ -553,6 +553,16 @@ impl ReceiverHandshake {
         })
     }
 
+    pub fn abort_active(&mut self, session_id: SessionId) -> Result<(), ProtocolError> {
+        match self.state {
+            ReceiverState::Active { session_id: active } if active == session_id => {
+                self.state = ReceiverState::Ended { session_id };
+                Ok(())
+            }
+            _ => Err(ProtocolError::WrongSession),
+        }
+    }
+
     pub fn handle(&mut self, frame: &ControlFrame) -> Result<Option<ControlFrame>, ProtocolError> {
         validate_frame(frame)?;
         match (self.state, frame) {
