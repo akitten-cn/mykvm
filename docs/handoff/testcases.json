@@ -393,7 +393,8 @@
       "method": "mock process spawn 禁止并执行本机路径审查",
       "expected": "生产 Mac 后端不反复启动 pbpaste/pbcopy",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T14-mac-clipboard.md", "clipboard::tests::mac_change_count_reads_only_after_a_new_revision", "scripts/fork-isolation.test.mjs A37"]
     },
     {
       "id": "A38",

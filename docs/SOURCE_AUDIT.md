@@ -111,3 +111,9 @@ Caps Lock 恢复普通 macOS 键码 57 注入，不再假设系统输入源快�
 原 Windows 路径与其他平台一样由 120 ms/轮询读取 arboard，无法区分 busy、empty、unsupported 和错误。现有普通用户后台线程新增 message-only window 和剪贴板格式监听；窗口只发送 sequence 通知，内容在工作线程以原生 Unicode handle 读取。三次有界 busy 重试和读取前后 sequence 比较阻止格式切换时采用陈旧文本。
 
 Drop、WM_CLOSE、WM_NCDESTROY 和异常消息循环退出均有对应清理。源码没有活动用户会话枚举、SYSTEM helper 或跨会话读取。Mac 条件编译和静态 API 核验通过，但本机缺 Windows target 标准库，因此函数签名尚需 W01 原生编译确认；旧 LAN 总门禁未因本任务翻转。
+
+## T14 Mac 剪贴板增量核验
+
+原 Mac 文本路径在每次轮询中执行 pbpaste，写入执行 pbcopy；现统一为已有 arboard 的进程内文本/图片后端。新增 NSPasteboard changeCount 只读适配器，工作线程比较计数后才读取内容；无目标时刷新计数基线，避免重连触发旧内容。
+
+锁文件只增加 mykvm 对已存在 `objc2-app-kit 0.3.2` 包的直接引用，没有引入新版本树。Mac 编译和静态无子进程检查通过；真实 pasteboard 读写因需要保存、修改和恢复用户内容而未执行。

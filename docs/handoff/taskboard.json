@@ -950,17 +950,21 @@
       "review_focus": [
         "不把 Mac 不存在的通用事件 API 当现成能力；读写测试恢复用户剪贴板"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../T14-mac-clipboard.md",
+        "implementation SHA e2a3ccdb47ad1680ccef8f71dd182c2706ca614d",
+        ".local-evidence/t14-postcommit.log"
+      ],
       "blocked_reason": null
     },
     {

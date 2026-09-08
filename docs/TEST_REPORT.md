@@ -180,3 +180,9 @@ M05 在本机创建两个独立临时证书目录和真实 QUIC endpoint，经�
 A33 新增纯策略测试区分 unchanged/empty/busy/unsupported/error，并证明 busy 重试有硬上限、格式 sequence 变化时旧文本被丢弃。生产同步循环只接受 Content；既有接收测试证明系统写失败不会确认或清空旧内容。隔离检查核对 `AddClipboardFormatListener`、`WM_CLIPBOARDUPDATE`、sequence 读取、Remove/Destroy/上下文释放和消息循环退出路径，同时禁止 SYSTEM/跨会话读取。
 
 实现 SHA `3a5f7dc5f0e010c6881b04b1259986ec2105ac13` 的 `.local-evidence/t13-postcommit.log` 退出码 0：207 个 Rust 库测试、15 项隔离检查、前端 lint/build、Mac cargo check 和 clipboard 格式检查通过。A33 更新为 pass；A38 留待 T16，W01 为 pending_environment。Windows 条件代码尚未在 Windows 标准库或原生主机编译，未宣称运行通过。
+
+## T14 Mac 进程内剪贴板
+
+Mac 文本读写已改为 arboard，生产源码不再包含 pbpaste/pbcopy。`MacClipboardWatcher` 先比较 NSPasteboard changeCount，目标不存在时只更新基线，有变化才读取。测试覆盖相同计数去重、计数推进以及中文/emoji/换行/长 UTF-8 的内容模型完整性；隔离检查核对 watcher 位于读取之前。
+
+实现 SHA `e2a3ccdb47ad1680ccef8f71dd182c2706ca614d` 的 `.local-evidence/t14-postcommit.log` 退出码 0：208 个 Rust 库测试、16 项隔离检查、前端 lint/build、Mac cargo check 和格式检查通过。A37 更新为 pass；A32 等待 T15 网络操作测试，M03 真实剪贴板保持 not_run。
