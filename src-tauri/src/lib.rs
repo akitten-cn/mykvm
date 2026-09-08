@@ -294,7 +294,7 @@ struct NativeStageStatus {
 fn legacy_data_blocked_status() -> NativeStageStatus {
     NativeStageStatus {
         state: "idle".into(),
-        detail: "当前为开发版本：旧 LAN 协议已禁用，V2 连接授权与会话接入尚未完成。请继续使用原有控制工具。".into(),
+        detail: "旧 LAN 输入协议已禁用；V2 接收端已接线，可靠释放完成前仍由安全门禁保持停用。".into(),
     }
 }
 
@@ -729,6 +729,7 @@ impl AppRuntime {
         let transport_packets_for_input = Arc::clone(&self.transport_packets);
         let transport_packets_for_stream = Arc::clone(&self.transport_packets);
         let input_events = Arc::clone(&self.input_events);
+        let input_events_for_v2 = Arc::clone(&self.input_events);
         let clipboard_packets = Arc::clone(&self.clipboard_packets);
         let pairing_challenge_for_stream = Arc::clone(&self.pairing_challenge);
         let config_path_for_pairing = self.config_path.clone();
@@ -740,6 +741,15 @@ impl AppRuntime {
                 .map_err(|_| "layout state lock poisoned".to_string())?,
         )?;
         let trust_registry_for_pairing = trust_registry.clone();
+        let receiver_runtime = Arc::new(Mutex::new(session_runtime::ReceiverSessionRuntime::new(
+            protocol_v2::BootId::generate()
+                .map_err(|error| format!("failed to generate V2 receiver boot id: {error:?}"))?,
+            input::NativeInjector,
+        )));
+        let receiver_for_control = Arc::clone(&receiver_runtime);
+        let receiver_for_input = Arc::clone(&receiver_runtime);
+        let v2_control_enabled = Arc::clone(&self.input_receive_enabled);
+        let v2_input_enabled = Arc::clone(&self.input_receive_enabled);
 
         let on_datagram = Arc::new(
             move |payload: Vec<u8>, authenticated: quic_transport::AuthenticatedPeer| {
@@ -867,8 +877,37 @@ impl AppRuntime {
             trust_registry,
             on_datagram,
             on_stream,
-            Arc::new(|_, _| None),
-            Arc::new(|_, _| false),
+            Arc::new(move |frame, authenticated| {
+                if !v2_control_enabled.load(Ordering::Acquire) {
+                    return Some(protocol_v2::ControlFrame::Reject {
+                        code: "receiver_disabled".into(),
+                        detail: "V2 input receive mode is disabled".into(),
+                    });
+                }
+                receiver_for_control
+                    .lock()
+                    .ok()
+                    .and_then(|mut receiver| match receiver.handle_control(&frame, &authenticated) {
+                        Ok(response) => response,
+                        Err(error) => Some(protocol_v2::ControlFrame::Reject {
+                            code: "session_rejected".into(),
+                            detail: format!("{error:?}"),
+                        }),
+                    })
+            }),
+            Arc::new(move |frame, authenticated| {
+                if !v2_input_enabled.load(Ordering::Acquire) {
+                    return false;
+                }
+                let accepted = receiver_for_input
+                    .lock()
+                    .map(|mut receiver| receiver.handle_input(&frame, &authenticated).is_ok())
+                    .unwrap_or(false);
+                if accepted {
+                    input_events_for_v2.fetch_add(1, Ordering::Relaxed);
+                }
+                accepted
+            }),
         )?;
         let mut stored = self
             .quic_transport
@@ -880,7 +919,30 @@ impl AppRuntime {
 
     fn start_discovery(&self) -> Result<(), String> {
         if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
-            return Err(legacy_data_blocked_status().detail);
+            let layout = self.layout_snapshot();
+            self.input_receive_enabled.store(
+                crate::fork_policy::V2_NATIVE_RECEIVER_ENABLED
+                    && session_runtime::receiver_mode_enabled(
+                        &layout.machine_role,
+                        &layout.input_mode,
+                    ),
+                Ordering::Release,
+            );
+            let transport = self.start_quic_transport(normalize_quic_port(
+                layout.transport_port,
+                layout.quic_port,
+            ))?;
+            if let Ok(mut stored_layout) = self.layout.lock() {
+                stored_layout.quic_port = transport.port();
+                for device in &mut stored_layout.devices {
+                    if device.role == "local" {
+                        device.quic_port = transport.port();
+                        device.transport_public_key = transport.public_key().to_string();
+                        device.protocol_version = quic_transport::PROTOCOL_VERSION;
+                    }
+                }
+            }
+            return Ok(());
         }
 
         let mut discovery_stop = self
@@ -1103,8 +1165,23 @@ impl AppRuntime {
 
     fn start_input(&self, layout: LayoutState) -> (NativeStageStatus, NativeStageStatus) {
         if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
-            self.input_receive_enabled.store(false, Ordering::Relaxed);
-            return (legacy_data_blocked_status(), legacy_data_blocked_status());
+            let receive_enabled = session_runtime::receiver_mode_enabled(
+                &layout.machine_role,
+                &layout.input_mode,
+            ) && crate::fork_policy::V2_NATIVE_RECEIVER_ENABLED;
+            self.input_receive_enabled
+                .store(receive_enabled, Ordering::Release);
+            return (
+                legacy_data_blocked_status(),
+                if receive_enabled {
+                    input::v2_inject_status()
+                } else {
+                    NativeStageStatus {
+                        state: "idle".into(),
+                        detail: "V2 input receiver is disabled for this machine role/mode.".into(),
+                    }
+                },
+            );
         }
 
         sync_layout_peer_presence(&self.layout, &self.peers);
@@ -1534,6 +1611,15 @@ fn start_runtime(
 }
 
 fn ready_transport_status(discovery: &DiscoveryStatus) -> NativeStageStatus {
+    if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
+        return NativeStageStatus {
+            state: "ready".into(),
+            detail: format!(
+                "Authenticated V2 QUIC is ready on {}; legacy UDP discovery is disabled.",
+                discovery.local_peer.quic_port
+            ),
+        };
+    }
     NativeStageStatus {
         state: "ready".into(),
         detail: format!(

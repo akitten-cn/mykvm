@@ -16,6 +16,10 @@ pub enum SessionRuntimeError {
     Injector(PortError),
 }
 
+pub fn receiver_mode_enabled(machine_role: &str, input_mode: &str) -> bool {
+    machine_role == "client" && input_mode == "receive"
+}
+
 pub struct ReceiverSessionRuntime<I> {
     local_boot: BootId,
     binding: Option<AuthenticatedPeer>,
@@ -188,6 +192,14 @@ mod tests {
 
     fn boot(value: u8) -> BootId {
         BootId([value; 16])
+    }
+
+    #[test]
+    fn receiver_mode_requires_the_mac_receive_role() {
+        assert!(receiver_mode_enabled("client", "receive"));
+        assert!(!receiver_mode_enabled("server", "receive"));
+        assert!(!receiver_mode_enabled("client", "control"));
+        assert!(!receiver_mode_enabled("unset", "receive"));
     }
 
     fn peer(generation: u64) -> AuthenticatedPeer {

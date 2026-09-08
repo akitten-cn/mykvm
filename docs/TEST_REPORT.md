@@ -56,3 +56,9 @@
 ## T04.b1 接收会话适配器增量
 
 新增 6 项 FakeInjector 测试，把 TLS 认证产生的完整 `AuthenticatedPeer` 绑定到 control 和 input：不同连接代次不能提交输入；Ready 前检查 injector；Commit 后严格按序提交；Pong 报告最高已提交序列；重复 Commit 不重置序列；End 先关闭 gate 再请求 ReleaseAll。注入失败会使握手和 input gate 一起进入结束态并尽力 ReleaseAll。测试没有读取或操作真实桌面。
+
+## T04.b2 AppRuntime 接线增量
+
+`AppRuntime` 已构造共享接收会话，并把认证 control/input callbacks 接到 QUIC transport；V2-only 启动不再依赖已禁用的旧 UDP discovery。普通用户 `NativeInjector` 在 Ready 和每次提交前只读取当前辅助功能/Secure Input 状态，不主动弹授权。Mac 库回归 157 项通过；应用没有启动，macOS runtime 仍为 not_run。
+
+主进程原有 ReleaseAll 仍为空操作，因此 `V2_NATIVE_RECEIVER_ENABLED` 编译期门禁保持 false。此阶段只能证明生产路径已接线和可编译，不能接收真实输入；T07 完成真实账本和释放后才允许打开。

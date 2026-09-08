@@ -259,7 +259,7 @@
       "review": "pending",
       "verification": {
         "automated": "pass",
-        "scope": "T04.b1 authenticated receiver session adapter passes with FakeInjector; AppRuntime/native injector startup wiring remains."
+        "scope": "T04.b1 adapter tests and T04.b2 AppRuntime/native receiver compile pass. Native activation remains fail-closed until T07; controller routing/hotkey wiring remains T04.b3."
       },
       "subtasks": [
         {
@@ -275,6 +275,18 @@
         {
           "id": "T04.b2",
           "title": "AppRuntime 与原生端口启动接线",
+          "implementation": "done",
+          "review": "approved",
+          "verification": {
+            "automated": "pass",
+            "mac_build": "pass",
+            "mac_runtime": "not_run",
+            "scope": "V2-only listener and authenticated callbacks compile in AppRuntime; NativeInjector reads permission without prompting. Compile-time safety gate stays false until T07 release ledger."
+          }
+        },
+        {
+          "id": "T04.b3",
+          "title": "控制端 Router、热键与捕获接线",
           "implementation": "todo",
           "review": "pending"
         }

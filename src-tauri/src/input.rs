@@ -12,6 +12,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    control_ports::{InjectorPort, PortError},
     quic_transport,
     shared_input::{
         button_from_mask, mouse_button_mask, InputCommand, InputEvent, MouseButton,
@@ -19,6 +20,53 @@ use crate::{
     },
     Device, LayoutState, NativeStageStatus, Screen,
 };
+
+pub(crate) struct NativeInjector;
+
+impl InjectorPort for NativeInjector {
+    fn readiness(&self) -> Result<(), PortError> {
+        #[cfg(target_os = "macos")]
+        {
+            if !macos_accessibility_trusted(false) {
+                return Err(PortError::PermissionDenied);
+            }
+            if macos_secure_input_enabled() {
+                return Err(PortError::Unavailable);
+            }
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            return Err(PortError::Unavailable);
+        }
+        Ok(())
+    }
+
+    fn post_event(&mut self, event: InputCommand) -> Result<(), PortError> {
+        self.readiness()?;
+        if dispatch_input_command(event) {
+            Ok(())
+        } else {
+            Err(PortError::SubmissionFailed)
+        }
+    }
+}
+
+pub(crate) fn v2_inject_status() -> NativeStageStatus {
+    match NativeInjector.readiness() {
+        Ok(()) => NativeStageStatus {
+            state: "ready".into(),
+            detail: "V2 authenticated input receiver is ready.".into(),
+        },
+        Err(PortError::PermissionDenied) => NativeStageStatus {
+            state: "error".into(),
+            detail: "macOS 需要给 MyKVM 辅助功能权限才能接收键鼠输入。请授权后完全退出并重新打开应用。".into(),
+        },
+        Err(error) => NativeStageStatus {
+            state: "error".into(),
+            detail: format!("V2 input receiver is unavailable: {error:?}."),
+        },
+    }
+}
 
 const INPUT_PROTOCOL: &str = "mykvm.input.v1";
 const INPUT_CONTROL_PROTOCOL: &str = "mykvm.input-control.v1";

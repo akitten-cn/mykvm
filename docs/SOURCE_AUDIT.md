@@ -47,3 +47,9 @@ T01 已完成源码审查与基线记录；fmt/clippy 失败保留为已知基�
 原 `with_no_client_auth()` 已替换为客户端出示本机持久证书的 TLS 配置；服务端仍允许没有既有信任的连接完成限时人工配对，但不会给它数据权限。应用层从 TLS peer identity 读取实际证书，精确匹配后端维护的 `trustedPeers`，再生成连接代次和方向角色。发现广播更新仍会影响在线地址和旧设备字段，但不会写入这一信任表；T06 新出站路径必须只从持久信任选证书。
 
 入站 datagram reader 只为已认证连接创建。stream 入口先将配对声明证书与 TLS 出示证书绑定，普通数据则要求认证上下文和正确角色。旧数据包内部的组 secret 检查暂时保留为附加校验，但不再承担连接身份职责。真实 LAN 总门禁仍关闭，直到 V2 帧和会话层完成。
+
+## T04.b2 运行时接线增量核验
+
+`AppRuntime::start_quic_transport` 原先为 V2 control/input 传入空 handler；现已共享一个 `ReceiverSessionRuntime<NativeInjector>`，control 与 input 都检查 `input_receive_enabled` 后才进入会话适配器。不同 TLS 连接代次不能共享会话。旧 `start_discovery` 的总门禁分支现在只启动认证 QUIC endpoint，不绑定或广播旧 UDP discovery。
+
+`input.rs` 的普通用户 NativeInjector 复用现有平台注入函数，并在 Ready/每次提交前读取权限状态。源码复核同时确认主进程 `inject_input_command` 对 ReleaseAll 仍为空分支，不能满足 T07；因此新增独立 `V2_NATIVE_RECEIVER_ENABLED = false` 编译期门禁。应用即使启动也不会接受真实 V2 输入，直到按会话释放账本实现并经 FakeInjector 验证后再审查开门。
