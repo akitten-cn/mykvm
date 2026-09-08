@@ -10,7 +10,7 @@
 |T02|完成|独立身份；禁用上游更新、特权 helper、安装和运行时防火墙修改路径|
 |T03|完成|假平台端口及 5 项安全测试；完整协议回环未完成|
 |T04.a|完成|纯路由状态机、取消代次、独立原子紧急返回通道，16 项测试|
-|T04.b|完成|接收端、控制端 Router、认证 QUIC 客户端及 Windows hook/热键/关键事件生产路径已接线；控制端总门禁等待 T08/T09/T11 后开启|
+|T04.b|完成|接收端、控制端 Router、认证 QUIC 客户端及 Windows hook/热键/关键事件生产路径已接线；T08–T11 审查后控制端 V2 门禁已开启|
 |T04.b3.a|完成|控制端 Hello/Prepare、Ready 校验、随机 SessionId、显式 Commit/CommitAck、Ping/Pong 进度和 End 纯逻辑|
 |T04.b3.b1|完成|Router 与控制端握手适配；Ready 后仍等待按键释放和焦点门槛，提前/晚 ACK 失败关闭，返回先恢复本地；QUIC/Windows 生产接线仍未完成|
 |T04.b3.b2a|完成|有界控制端连接客户端及真实 QUIC transport adapter；入站回调只投递队列，发送/溢出故障先恢复本地；尚未由 Windows 捕获线程实例化|
@@ -39,3 +39,5 @@ T08.c 最后实现 SHA：`5d8bdb104139738bb7f7c9cfece3391019fe41d1`。提交后�
 T09 当前实现 SHA：`9aed9a81aa928ad67ba2bf298d49b63027b44dd6`。提交后检查通过：198 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和相关格式检查，证据日志为本地 `.local-evidence/t09c-postcommit.log`。
 
 设置界面 SHA `d445e9b9757077500f896534b94a1104f3745edd` 已补三个控制热键的中英文录入和说明，前端检查日志为 `.local-evidence/t09d-postcommit.log`。T10.a SHA `2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7` 完成游戏模式最短放行；T10.b SHA `15fd004b5f471f7f83cc3b86fffb1a448e74dfaf` 将其余重路径移出 hook，检查日志为 `.local-evidence/t10b-postcommit.log`。T11 SHA `19191db65aaac1743823538df3d4c4ad066e6c5b` 完成 Windows 单次焦点交接与失败提示，检查日志为 `.local-evidence/t11-postcommit.log`。T08.d SHA `3dfca829cc74e7d4ff4c47ce2fb826ecd10af2ee` 完成显示布局版本和坐标门控。下一原子任务审查控制端总门禁；Windows 构建和双机试用状态仍独立保留。
+
+控制端门禁审查 SHA `63154dcbfc4ff68ccb0d1a911c1652b0ba54fde9` 已开启认证 V2 Windows 控制路径，旧 LAN 和特权路径继续关闭。下一原子任务为 T12 Mac 键位映射完善；Windows 构建和双机试用状态仍独立保留。

@@ -227,7 +227,7 @@
         "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run",
-        "notes": "Router, authenticated receiver/controller adapters and Windows hook wiring implemented. Controller runtime remains compile-time closed pending T08/T09/T11; Windows native compile unavailable."
+        "notes": "Router, authenticated receiver/controller adapters and Windows hook wiring implemented. Controller gate opened after T08-T11 review at SHA 63154dcbfc4ff68ccb0d1a911c1652b0ba54fde9; Windows native compile remains pending_environment."
       },
       "evidence": [
         "../T04a-routing.md",
@@ -236,7 +236,8 @@
         "../T04b3a-controller-handshake.md",
         "../T04b3b1-controller-runtime.md",
         "../T04b3b2a-controller-client.md",
-        "../T04b3b2b-windows-wiring.md"
+        "../T04b3b2b-windows-wiring.md",
+        "../CONTROLLER_GATE_REVIEW.md"
       ],
       "blocked_reason": null,
       "subtasks": [
@@ -265,7 +266,7 @@
       "review": "approved",
       "verification": {
         "automated": "pass",
-        "scope": "Receiver and controller adapters plus AppRuntime/Windows hook production wiring are implemented. Controller gate remains closed for T08/T09/T11; Windows build pending environment."
+        "scope": "Receiver and controller adapters plus AppRuntime/Windows hook production wiring are implemented. Controller gate opened after T08-T11 review; Windows build remains pending_environment."
       },
       "subtasks": [
         {

@@ -8,6 +8,8 @@
 
 Rust 安装到外层项目 `.toolchain/`，使用 `source/with-rust.sh`，不修改全局模型、代理配置和 shell profile。保留原 MIT 许可证及已有 QUIC stream 并发修复、Windows release 无控制台属性。应用身份与 helper、更新、安装副作用分别核验，不能只改显示名。审查后补充发现运行时 netsh 路径，已在执行前加策略门禁并纳入检查。
 
+2026-09-09：T08–T11 的实现、自动化和主线程审查完成后开启 `V2_NATIVE_CONTROLLER_ENABLED`。Windows 构建证据仍独立为 pending_environment；开门不把 Mac 编译推导为 Windows 条件编译或实机通过。V1 LAN、特权 helper、驱动和安全桌面功能继续关闭。
+
 ## ADR-003：先纯路由核心，再真实接入
 
 T04 拆为 T04.a 与 T04.b。原子紧急返回独立于 actor 锁及网络队列；取消代次避免晚 ACK 恢复远控。T04.a 已测试，T04.b 依赖 T05/T06，不宣称纯状态机已提供实际切换功能。
