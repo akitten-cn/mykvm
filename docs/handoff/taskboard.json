@@ -1567,17 +1567,22 @@
       "review_focus": [
         "“代码完成”与“所有平台实测通过”分开；不可只输出又一份未来计划"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../DELIVERY.md",
+        "../PREVIEW_ARTIFACTS.sha256",
+        "../TEST_REPORT.md",
+        "../PROGRESS.md"
+      ],
       "blocked_reason": null
     }
   ]
