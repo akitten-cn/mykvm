@@ -27,6 +27,7 @@ mod controller_client;
 mod controller_runtime;
 pub mod control_ports;
 mod fork_policy;
+mod game_mode;
 mod input;
 mod performance;
 pub mod protocol_v2;
