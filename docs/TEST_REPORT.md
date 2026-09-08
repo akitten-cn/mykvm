@@ -40,3 +40,7 @@
 2026-09-08 执行 `t06a-native` 检查，退出码 0：142 个 Rust 库测试、7 项隔离检查、前端 lint/build、Mac cargo check 和新增核心格式检查通过。新增 7 项协议测试覆盖错误版本/角色/能力、分配前长度上限、逐字节与粘包解析、截断、旧 boot 和结束会话。A13–A15 标记 pass；A16/A17 等待真实输入会话接入，仍为 not_run 并记录部分证据。该阶段没有打开网络服务或操作桌面。
 
 提交后复核记录 SHA `ddfc343529812a810c20db9526040a71a0db3284`，退出码 0，日志为本地 `.local-evidence/t06a-postcommit.log`。
+
+## T06.b control stream 增量
+
+定向测试在 Mac 本机真实 QUIC 回环上通过：已认证 control stream 在不关闭写端的情况下连续交换 Hello、Prepare/Ready 和 Commit/CommitAck；另一测试验证 64 帧发送队列及 128 帧/秒速率上限会失败关闭。原有 bulk stream 使用同一 accept loop，完整回归将继续验证其 ACK 路径。`AppRuntime` 尚未接处理器，未启动真实服务或输入。

@@ -373,7 +373,8 @@
         "lol_runtime": "optional_not_run"
       },
       "evidence": [
-        "../T06a-protocol.md"
+        "../T06a-protocol.md",
+        "../T06b-control-stream.md"
       ],
       "blocked_reason": null,
       "subtasks": [
@@ -389,7 +390,17 @@
         },
         {
           "id": "T06.b",
-          "title": "认证 QUIC control 持久流与运行时接入",
+          "title": "认证 QUIC control 持久流",
+          "implementation": "done",
+          "review": "approved",
+          "verification": {
+            "automated": "pass",
+            "scope": "Authenticated persistent loopback, bounded queue and rate-limit tests. App runtime handler remains T04.b."
+          }
+        },
+        {
+          "id": "T06.c",
+          "title": "V2 可靠 input 分帧与持久流",
           "implementation": "todo",
           "review": "pending"
         }

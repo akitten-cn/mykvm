@@ -866,6 +866,7 @@ impl AppRuntime {
             trust_registry,
             on_datagram,
             on_stream,
+            Arc::new(|_, _| None),
         )?;
         let mut stored = self
             .quic_transport

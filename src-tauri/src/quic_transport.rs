@@ -28,6 +28,8 @@ use quinn::{
 };
 use tokio::sync::mpsc as tokio_mpsc;
 
+use crate::protocol_v2::{self, ControlDecoder, ControlFrame};
+
 pub const PROTOCOL_VERSION: u16 = 1;
 
 const SERVER_NAME: &str = "mykvm.local";
@@ -47,11 +49,19 @@ const MAX_HEALTH_PEERS: usize = 64;
 // Streams (clipboard, files) are handled in spawned tasks; cap the concurrent
 // in-flight count so a burst cannot spawn unbounded copies of a 48MB write.
 const MAX_CONCURRENT_STREAMS: usize = 8;
+const MAX_CONTROL_CONNECTIONS: usize = 8;
+const CONTROL_QUEUE_FRAMES: usize = 64;
+const MAX_CONTROL_FRAMES_PER_SECOND: u32 = 128;
+const CONTROL_PREFACE: &[u8; 4] = b"MKC2";
 
 const ALPN_V2: &[u8] = b"mykvm-local/2";
 
 type DatagramHandler = Arc<dyn Fn(Vec<u8>, AuthenticatedPeer) + Send + Sync + 'static>;
 type StreamHandler = Arc<dyn Fn(Vec<u8>, ConnectionPeer) -> bool + Send + Sync + 'static>;
+type ControlHandler =
+    Arc<dyn Fn(ControlFrame, AuthenticatedPeer) -> Option<ControlFrame> + Send + Sync + 'static>;
+type OutboundControlHandler =
+    Arc<dyn Fn(ControlFrame) -> Option<ControlFrame> + Send + Sync + 'static>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PeerRole {
@@ -153,6 +163,33 @@ impl TrustedPeerRegistry {
             remote_addr,
         })
     }
+
+    fn control_peer(
+        &self,
+        peer_id: &str,
+        role: PeerRole,
+        addr: String,
+        protocol_version: u16,
+    ) -> Result<ControlPeer, String> {
+        let peers = self
+            .0
+            .read()
+            .map_err(|_| "trust store lock poisoned".to_string())?;
+        let peer = peers
+            .iter()
+            .find(|peer| peer.peer_id == peer_id && peer.role == role)
+            .ok_or_else(|| format!("peer {peer_id} is not trusted for role {role:?}"))?;
+        Ok(ControlPeer {
+            peer_id: peer.peer_id.clone(),
+            role: peer.role,
+            trust_revision: peer.trust_revision,
+            endpoint: PeerEndpoint {
+                addr,
+                public_key: BASE64.encode(&peer.certificate),
+                protocol_version,
+            },
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -160,6 +197,30 @@ pub struct PeerEndpoint {
     pub addr: String,
     pub public_key: String,
     pub protocol_version: u16,
+}
+
+#[derive(Clone, Debug)]
+pub struct ControlPeer {
+    peer_id: String,
+    role: PeerRole,
+    trust_revision: u64,
+    endpoint: PeerEndpoint,
+}
+
+#[derive(Clone)]
+pub struct ControlHandle {
+    outgoing: tokio_mpsc::Sender<ControlFrame>,
+}
+
+impl ControlHandle {
+    pub fn try_send(&self, frame: ControlFrame) -> Result<(), String> {
+        self.outgoing.try_send(frame).map_err(|error| match error {
+            tokio_mpsc::error::TrySendError::Full(_) => {
+                format!("control queue is full ({CONTROL_QUEUE_FRAMES} frames)")
+            }
+            tokio_mpsc::error::TrySendError::Closed(_) => "control stream is closed".into(),
+        })
+    }
 }
 
 /// Consecutive-failure record for one peer address. Shared between the
@@ -313,6 +374,34 @@ impl TransportHandle {
     pub fn replace_trusted_peers(&self, peers: Vec<TrustedPeer>) -> Result<(), String> {
         self.trust_store.replace(peers)
     }
+
+    pub fn control_peer(
+        &self,
+        peer_id: &str,
+        role: PeerRole,
+        addr: String,
+        protocol_version: u16,
+    ) -> Result<ControlPeer, String> {
+        self.trust_store
+            .control_peer(peer_id, role, addr, protocol_version)
+    }
+
+    pub fn open_control(
+        &self,
+        peer: ControlPeer,
+        on_frame: OutboundControlHandler,
+    ) -> Result<ControlHandle, String> {
+        let (outgoing, receiver) = tokio_mpsc::channel(CONTROL_QUEUE_FRAMES);
+        self.commands
+            .send(TransportCommand::OpenControl {
+                peer,
+                outgoing: receiver,
+                responses: outgoing.clone(),
+                on_frame,
+            })
+            .map_err(|_| "QUIC transport is stopped".to_string())?;
+        Ok(ControlHandle { outgoing })
+    }
 }
 
 enum TransportCommand {
@@ -324,6 +413,12 @@ enum TransportCommand {
         peer: PeerEndpoint,
         payload: Vec<u8>,
         result: mpsc::Sender<Result<(), String>>,
+    },
+    OpenControl {
+        peer: ControlPeer,
+        outgoing: tokio_mpsc::Receiver<ControlFrame>,
+        responses: tokio_mpsc::Sender<ControlFrame>,
+        on_frame: OutboundControlHandler,
     },
     Shutdown,
 }
@@ -340,6 +435,7 @@ pub fn start(
     trust_store: TrustedPeerRegistry,
     on_datagram: DatagramHandler,
     on_stream: StreamHandler,
+    on_control: ControlHandler,
 ) -> Result<TransportHandle, String> {
     // Load (or create-and-persist) this machine's transport identity *before*
     // spawning the runtime thread so a stable public key is reused across
@@ -375,6 +471,7 @@ pub fn start(
                 command_rx,
                 on_datagram,
                 on_stream,
+                on_control,
                 loop_health,
                 ready_tx,
             ));
@@ -415,6 +512,7 @@ async fn run_transport(
     mut commands: tokio_mpsc::UnboundedReceiver<TransportCommand>,
     on_datagram: DatagramHandler,
     on_stream: StreamHandler,
+    on_control: ControlHandler,
     health: HealthMap,
     ready_tx: mpsc::Sender<Result<ReadyTransport, String>>,
 ) {
@@ -435,7 +533,13 @@ async fn run_transport(
     };
 
     let _ = ready_tx.send(Ok(ReadyTransport { port, public_key }));
-    spawn_accept_loop(endpoint.clone(), trust_store, on_datagram, on_stream);
+    spawn_accept_loop(
+        endpoint.clone(),
+        trust_store,
+        on_datagram,
+        on_stream,
+        on_control,
+    );
 
     // The command loop must never await network progress: one dead peer's 2s
     // connect timeout or one 48MB stream write would stall every queued input
@@ -444,6 +548,7 @@ async fn run_transport(
     // establishment and stream sends run in spawned tasks.
     let connections: ConnectionMap = Arc::new(Mutex::new(HashMap::new()));
     let stream_slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_STREAMS));
+    let control_slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONTROL_CONNECTIONS));
     while let Some(command) = commands.recv().await {
         match command {
             TransportCommand::SendDatagram { peer, payload } => {
@@ -485,6 +590,37 @@ async fn run_transport(
                         log::warn!("QUIC stream send failed: {error}");
                     }
                     let _ = result.send(outcome);
+                    drop(permit);
+                });
+            }
+            TransportCommand::OpenControl {
+                peer,
+                outgoing,
+                responses,
+                on_frame,
+            } => {
+                let Ok(permit) = Arc::clone(&control_slots).try_acquire_owned() else {
+                    continue;
+                };
+                let endpoint = endpoint.clone();
+                let identity = identity.clone();
+                let connections = Arc::clone(&connections);
+                let health = Arc::clone(&health);
+                tokio::spawn(async move {
+                    if let Err(error) = run_outbound_control(
+                        &endpoint,
+                        &identity,
+                        &connections,
+                        &health,
+                        peer,
+                        outgoing,
+                        responses,
+                        on_frame,
+                    )
+                    .await
+                    {
+                        log::warn!("QUIC control stream stopped: {error}");
+                    }
                     drop(permit);
                 });
             }
@@ -833,6 +969,7 @@ fn spawn_accept_loop(
     trust_store: TrustedPeerRegistry,
     on_datagram: DatagramHandler,
     on_stream: StreamHandler,
+    on_control: ControlHandler,
 ) {
     let generations = Arc::new(AtomicU64::new(1));
     tokio::spawn(async move {
@@ -840,6 +977,7 @@ fn spawn_accept_loop(
             let remote = incoming.remote_address();
             let on_datagram = Arc::clone(&on_datagram);
             let on_stream = Arc::clone(&on_stream);
+            let on_control = Arc::clone(&on_control);
             let trust_store = trust_store.clone();
             let generation = generations.fetch_add(1, Ordering::Relaxed);
 
@@ -854,7 +992,7 @@ fn spawn_accept_loop(
                                 on_datagram,
                             );
                         }
-                        spawn_stream_reader(connection, peer, on_stream);
+                        spawn_stream_reader(connection, peer, on_stream, on_control);
                     }
                     Err(error) => {
                         log::warn!("QUIC incoming connection failed from {remote}: {error}");
@@ -911,20 +1049,57 @@ fn spawn_stream_reader(
     connection: quinn::Connection,
     peer: ConnectionPeer,
     on_stream: StreamHandler,
+    on_control: ControlHandler,
 ) {
+    let control_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
     tokio::spawn(async move {
         loop {
             match connection.accept_bi().await {
                 Ok((mut send, mut recv)) => {
                     let on_stream = Arc::clone(&on_stream);
+                    let on_control = Arc::clone(&on_control);
                     let peer = peer.clone();
                     let connection = connection.clone();
+                    let control_active = Arc::clone(&control_active);
                     tokio::spawn(async move {
-                        match recv.read_to_end(MAX_STREAM_BYTES).await {
+                        let mut preface = [0_u8; 4];
+                        if let Err(error) = recv.read_exact(&mut preface).await {
+                            log::warn!("QUIC stream preface read failed: {error}");
+                            return;
+                        }
+                        if &preface == CONTROL_PREFACE {
+                            let ConnectionPeer::Authenticated(authenticated) = peer else {
+                                let _ = send.finish();
+                                return;
+                            };
+                            if control_active.swap(true, Ordering::AcqRel) {
+                                let _ = send.finish();
+                                return;
+                            }
+                            let outcome = run_inbound_control_stream(
+                                &mut send,
+                                &mut recv,
+                                authenticated,
+                                on_control,
+                            )
+                            .await;
+                            control_active.store(false, Ordering::Release);
+                            if let Err(error) = outcome {
+                                log::warn!("QUIC inbound control stream stopped: {error}");
+                            }
+                            let _ = send.finish();
+                            return;
+                        }
+
+                        match recv.read_to_end(MAX_STREAM_BYTES - preface.len()).await {
                             Ok(payload) => {
+                                let mut complete =
+                                    Vec::with_capacity(preface.len() + payload.len());
+                                complete.extend_from_slice(&preface);
+                                complete.extend_from_slice(&payload);
                                 let was_unauthenticated =
                                     matches!(peer, ConnectionPeer::Unauthenticated { .. });
-                                let accepted = on_stream(payload, peer);
+                                let accepted = on_stream(complete, peer);
                                 let ack: &[u8] = if accepted { b"ok" } else { b"reject" };
                                 let _ = send.write_all(ack).await;
                                 let _ = send.finish();
@@ -949,6 +1124,64 @@ fn spawn_stream_reader(
             }
         }
     });
+}
+
+async fn run_inbound_control_stream(
+    send: &mut quinn::SendStream,
+    recv: &mut quinn::RecvStream,
+    peer: AuthenticatedPeer,
+    on_control: ControlHandler,
+) -> Result<(), String> {
+    let mut decoder = ControlDecoder::default();
+    let mut window_started = Instant::now();
+    let mut frames_in_window = 0_u32;
+    loop {
+        let chunk = recv
+            .read_chunk(4096, true)
+            .await
+            .map_err(|error| format!("control read failed: {error}"))?;
+        let Some(chunk) = chunk else {
+            return decoder
+                .finish()
+                .map_err(|error| format!("control stream ended with partial frame: {error:?}"));
+        };
+        let frames = decoder
+            .push(&chunk.bytes)
+            .map_err(|error| format!("invalid control frame: {error:?}"))?;
+        enforce_control_rate(
+            &mut window_started,
+            &mut frames_in_window,
+            frames.len() as u32,
+        )?;
+        for frame in frames {
+            if let Some(response) = on_control(frame, peer.clone()) {
+                let encoded = protocol_v2::encode_control(&response)
+                    .map_err(|error| format!("invalid control response: {error:?}"))?;
+                send.write_all(&encoded)
+                    .await
+                    .map_err(|error| format!("control response write failed: {error}"))?;
+            }
+        }
+    }
+}
+
+fn enforce_control_rate(
+    window_started: &mut Instant,
+    frames_in_window: &mut u32,
+    added: u32,
+) -> Result<(), String> {
+    if window_started.elapsed() >= Duration::from_secs(1) {
+        *window_started = Instant::now();
+        *frames_in_window = 0;
+    }
+    *frames_in_window = frames_in_window.saturating_add(added);
+    if *frames_in_window > MAX_CONTROL_FRAMES_PER_SECOND {
+        Err(format!(
+            "control frame rate exceeded ({MAX_CONTROL_FRAMES_PER_SECOND}/s)"
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 /// Datagram send that never awaits: an established connection queues the
@@ -1079,6 +1312,107 @@ async fn send_stream_task(
         }
     }
     result
+}
+
+async fn run_outbound_control(
+    endpoint: &Endpoint,
+    identity: &TransportIdentity,
+    connections: &ConnectionMap,
+    health: &HealthMap,
+    peer: ControlPeer,
+    mut outgoing: tokio_mpsc::Receiver<ControlFrame>,
+    responses: tokio_mpsc::Sender<ControlFrame>,
+    on_frame: OutboundControlHandler,
+) -> Result<(), String> {
+    let key = peer_key(&peer.endpoint)?;
+    let existing = connections.lock().ok().and_then(|map| match map.get(&key) {
+        Some(ConnectionSlot::Ready(connection)) if connection.close_reason().is_none() => {
+            Some(connection.clone())
+        }
+        _ => None,
+    });
+    let connection = match existing {
+        Some(connection) => connection,
+        None => {
+            let connection = establish_connection(endpoint, identity, &peer.endpoint, &key).await?;
+            if let Ok(mut map) = connections.lock() {
+                map.insert(key.clone(), ConnectionSlot::Ready(connection.clone()));
+            }
+            record_peer_success(health, &peer.endpoint.addr);
+            connection
+        }
+    };
+    let (mut send, mut recv) = connection
+        .open_bi()
+        .await
+        .map_err(|error| format!("failed to open control stream: {error}"))?;
+    send.write_all(CONTROL_PREFACE)
+        .await
+        .map_err(|error| format!("failed to write control preface: {error}"))?;
+
+    let writer = tokio::spawn(async move {
+        while let Some(frame) = outgoing.recv().await {
+            let encoded = protocol_v2::encode_control(&frame)
+                .map_err(|error| format!("invalid outgoing control frame: {error:?}"))?;
+            send.write_all(&encoded)
+                .await
+                .map_err(|error| format!("control write failed: {error}"))?;
+        }
+        send.finish()
+            .map_err(|error| format!("control finish failed: {error}"))
+    });
+
+    let read_result = read_outbound_control(&mut recv, responses, on_frame).await;
+    writer.abort();
+    if let Ok(mut map) = connections.lock() {
+        map.remove(&key);
+    }
+    match read_result {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            connection.close(0_u32.into(), b"invalid-control");
+            Err(format!(
+                "control peer {} role {:?} revision {}: {error}",
+                peer.peer_id, peer.role, peer.trust_revision
+            ))
+        }
+    }
+}
+
+async fn read_outbound_control(
+    recv: &mut quinn::RecvStream,
+    responses: tokio_mpsc::Sender<ControlFrame>,
+    on_frame: OutboundControlHandler,
+) -> Result<(), String> {
+    let mut decoder = ControlDecoder::default();
+    let mut window_started = Instant::now();
+    let mut frames_in_window = 0_u32;
+    loop {
+        let chunk = recv
+            .read_chunk(4096, true)
+            .await
+            .map_err(|error| format!("control read failed: {error}"))?;
+        let Some(chunk) = chunk else {
+            return decoder
+                .finish()
+                .map_err(|error| format!("control stream ended with partial frame: {error:?}"));
+        };
+        let frames = decoder
+            .push(&chunk.bytes)
+            .map_err(|error| format!("invalid control frame: {error:?}"))?;
+        enforce_control_rate(
+            &mut window_started,
+            &mut frames_in_window,
+            frames.len() as u32,
+        )?;
+        for frame in frames {
+            if let Some(response) = on_frame(frame) {
+                responses
+                    .try_send(response)
+                    .map_err(|_| "control response queue is full or closed".to_string())?;
+            }
+        }
+    }
 }
 
 async fn send_stream_on_connection(
@@ -1382,6 +1716,7 @@ mod tests {
                 let _ = seen_tx.send((payload, peer));
                 true
             }),
+            Arc::new(|_, _| None),
         )
         .unwrap();
         let controller = start(
@@ -1396,6 +1731,7 @@ mod tests {
             .unwrap(),
             Arc::new(|_, _| {}),
             Arc::new(|_, _| false),
+            Arc::new(|_, _| None),
         )
         .unwrap();
 
@@ -1443,6 +1779,7 @@ mod tests {
                 let _ = datagram_tx.send(());
             }),
             Arc::new(|_, _| false),
+            Arc::new(|_, _| None),
         )
         .unwrap();
         let controller = start(
@@ -1451,6 +1788,7 @@ mod tests {
             TrustedPeerRegistry::default(),
             Arc::new(|_, _| {}),
             Arc::new(|_, _| false),
+            Arc::new(|_, _| None),
         )
         .unwrap();
         let peer = controller.peer(
@@ -1470,5 +1808,151 @@ mod tests {
         controller.shutdown();
         receiver.shutdown();
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn authenticated_control_stream_exchanges_multiple_frames_without_eof() {
+        let suffix = format!("{}-control", std::process::id());
+        let root = std::env::temp_dir().join(format!("mykvm-control-loopback-{suffix}"));
+        let controller_dir = root.join("controller");
+        let receiver_dir = root.join("receiver");
+        let controller_identity = load_or_create_identity(&controller_dir).unwrap();
+        let receiver_identity = load_or_create_identity(&receiver_dir).unwrap();
+        let port = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let handshake = Arc::new(Mutex::new(
+            protocol_v2::ReceiverHandshake::new(
+                "controller-a".into(),
+                protocol_v2::BootId([2; 16]),
+            )
+            .unwrap(),
+        ));
+        let receiver_handshake = Arc::clone(&handshake);
+        let receiver = start(
+            port,
+            receiver_dir,
+            TrustedPeerRegistry::new(vec![TrustedPeer {
+                peer_id: "controller-a".into(),
+                certificate: controller_identity.public_key,
+                role: PeerRole::Controller,
+                trust_revision: 1,
+            }])
+            .unwrap(),
+            Arc::new(|_, _| {}),
+            Arc::new(|_, _| false),
+            Arc::new(move |frame, peer| {
+                if peer.role != PeerRole::Controller || peer.peer_id != "controller-a" {
+                    return None;
+                }
+                receiver_handshake
+                    .lock()
+                    .ok()?
+                    .handle(&frame)
+                    .ok()
+                    .flatten()
+            }),
+        )
+        .unwrap();
+        let controller = start(
+            port.saturating_add(64),
+            controller_dir,
+            TrustedPeerRegistry::new(vec![TrustedPeer {
+                peer_id: "receiver-a".into(),
+                certificate: receiver_identity.public_key,
+                role: PeerRole::Receiver,
+                trust_revision: 1,
+            }])
+            .unwrap(),
+            Arc::new(|_, _| {}),
+            Arc::new(|_, _| false),
+            Arc::new(|_, _| None),
+        )
+        .unwrap();
+        let peer = controller
+            .control_peer(
+                "receiver-a",
+                PeerRole::Receiver,
+                format!("127.0.0.1:{}", receiver.port()),
+                PROTOCOL_VERSION,
+            )
+            .unwrap();
+        let (frame_tx, frame_rx) = mpsc::channel();
+        let control = controller
+            .open_control(
+                peer,
+                Arc::new(move |frame| {
+                    let _ = frame_tx.send(frame);
+                    None
+                }),
+            )
+            .unwrap();
+        control
+            .try_send(ControlFrame::Hello {
+                boot_id: protocol_v2::BootId([1; 16]),
+                peer_id: "controller-a".into(),
+                role: protocol_v2::DeviceRole::Controller,
+                capabilities: vec!["control_v2".into(), "input_v2".into()],
+            })
+            .unwrap();
+        control
+            .try_send(ControlFrame::Prepare {
+                request_id: 7,
+                target_display: "mac-main".into(),
+            })
+            .unwrap();
+        let ready = frame_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(matches!(
+            ready,
+            ControlFrame::Ready {
+                request_id: 7,
+                input_ready: true,
+                ..
+            }
+        ));
+        let session = protocol_v2::SessionId {
+            controller_boot: protocol_v2::BootId([1; 16]),
+            receiver_boot: protocol_v2::BootId([2; 16]),
+            nonce: [3; 16],
+        };
+        control
+            .try_send(ControlFrame::Commit {
+                request_id: 7,
+                session_id: session,
+            })
+            .unwrap();
+        assert_eq!(
+            frame_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+            ControlFrame::CommitAck {
+                session_id: session
+            }
+        );
+        drop(control);
+        controller.shutdown();
+        receiver.shutdown();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn control_handle_is_bounded_and_rate_limit_fails_closed() {
+        let (sender, _receiver) = tokio_mpsc::channel(CONTROL_QUEUE_FRAMES);
+        let handle = ControlHandle { outgoing: sender };
+        let frame = ControlFrame::Reject {
+            code: "test".into(),
+            detail: "bounded".into(),
+        };
+        for _ in 0..CONTROL_QUEUE_FRAMES {
+            handle.try_send(frame.clone()).unwrap();
+        }
+        assert!(handle.try_send(frame).is_err());
+
+        let mut started = Instant::now();
+        let mut count = 0;
+        assert!(
+            enforce_control_rate(&mut started, &mut count, MAX_CONTROL_FRAMES_PER_SECOND).is_ok()
+        );
+        assert!(enforce_control_rate(&mut started, &mut count, 1).is_err());
     }
 }
