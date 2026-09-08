@@ -130,6 +130,16 @@ test('A30/A31: Mac modifier policy is explicit and receiver mapping freezes on k
   assert.match(backend, /if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED[\s\S]*?if controller_enabled[\s\S]*?return statuses;[\s\S]*?input::v2_inject_status\(\)/)
 })
 
+test('T19: safe loopback is test-only and cannot reach native desktop adapters', () => {
+  const backend = read('src-tauri/src/lib.rs')
+  assert.match(backend, /#\[cfg\(test\)\]\s*mod safe_loopback;/)
+  const loopback = read('src-tauri/src/safe_loopback.rs')
+  assert.match(loopback, /FakeInjector::default\(\)/)
+  assert.match(loopback, /receiver-identity/)
+  assert.match(loopback, /controller-identity/)
+  assert.doesNotMatch(loopback, /NativeInjector|start_input_runtime|start_v2_controller_runtime|start_capture|CGEvent|SendInput/)
+})
+
 test('A08/A28: Windows local game hooks bypass context and contain panics', () => {
   const gameMode = read('src-tauri/src/game_mode.rs')
   assert.match(gameMode, /static LOCAL_GAME_MODE: AtomicBool/)

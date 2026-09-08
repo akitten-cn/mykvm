@@ -36,6 +36,8 @@ mod quic_transport;
 pub mod routing;
 mod session_runtime;
 pub mod shared_input;
+#[cfg(test)]
+mod safe_loopback;
 #[cfg(target_os = "windows")]
 pub mod windows_input;
 

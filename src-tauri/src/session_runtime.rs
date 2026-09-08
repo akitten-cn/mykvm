@@ -665,7 +665,7 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
     }
 
     #[cfg(test)]
-    fn injector(&self) -> &I {
+    pub(crate) fn injector(&self) -> &I {
         &self.injector
     }
 
