@@ -5238,7 +5238,7 @@ fn is_old_demo_layout(layout: &LayoutState) -> bool {
     layout
         .devices
         .iter()
-        .any(|device| is_old_demo_device(device))
+        .any(is_old_demo_device)
 }
 
 fn is_old_demo_device(device: &Device) -> bool {
@@ -5701,10 +5701,9 @@ fn choose_available_transport_port(preferred: u16) -> u16 {
 fn bind_available_udp_port(preferred: u16) -> Result<(UdpSocket, u16), String> {
     let start = normalize_transport_port(preferred);
     for offset in 0..64_u16 {
-        let candidate = start.saturating_add(offset);
-        if candidate > TRANSPORT_PORT_MAX {
+        let Some(candidate) = start.checked_add(offset) else {
             break;
-        }
+        };
 
         if let Ok(socket) = bind_reusable_udp_port(candidate) {
             return Ok((socket, candidate));
@@ -5961,9 +5960,9 @@ fn run_clipboard_sync(
                             .checked_mul(2)
                             .and_then(|bytes| bytes.checked_add(64 * 1024))
                             .unwrap_or(usize::MAX);
-                        match quic_transport.with_bulk_memory_budget(working_bytes, || {
-                            operation.into_encoded()
-                        }) {
+                        match quic_transport
+                            .with_bulk_memory_budget(working_bytes, || operation.into_encoded())
+                        {
                             Ok(encoded) => encoded,
                             Err(error) => {
                                 log::warn!("clipboard encode budget unavailable: {error}");
@@ -6422,13 +6421,7 @@ where
     }
     let applied_revision = revision_after_write();
     let (lamport, origin_peer, operation_id, digest) = commit_metadata;
-    engine.commit_remote_parts(
-        lamport,
-        origin_peer,
-        operation_id,
-        digest,
-        applied_revision,
-    );
+    engine.commit_remote_parts(lamport, origin_peer, operation_id, digest, applied_revision);
     true
 }
 
@@ -8501,9 +8494,6 @@ fn discovery_target_ports(base: u16) -> Vec<u16> {
         let Some(port) = base.checked_add(offset) else {
             break;
         };
-        if port > TRANSPORT_PORT_MAX {
-            break;
-        }
         ports.push(port);
     }
     ports

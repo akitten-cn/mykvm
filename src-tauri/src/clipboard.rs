@@ -415,7 +415,7 @@ fn read_image() -> Option<ClipboardImage> {
         })
     });
 
-    arboard_image.or_else(|| {
+    arboard_image.or({
         #[cfg(target_os = "windows")]
         {
             read_windows_dib_image()
