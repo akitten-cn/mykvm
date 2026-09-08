@@ -154,10 +154,28 @@ impl<T: ControllerTransport> ControllerClient<T> {
         local_boot: BootId,
         local_peer_id: String,
     ) -> Result<Self, ControllerClientError> {
+        Self::new_with_override(
+            transport,
+            local_boot,
+            local_peer_id,
+            Arc::new(LocalOverride::default()),
+        )
+    }
+
+    pub fn new_with_override(
+        transport: T,
+        local_boot: BootId,
+        local_peer_id: String,
+        local_override: Arc<LocalOverride>,
+    ) -> Result<Self, ControllerClientError> {
         let (sender, inbound) = mpsc::sync_channel(INBOUND_CONTROL_FRAMES);
         Ok(Self {
-            runtime: ControllerRuntime::new(local_boot, local_peer_id)
-                .map_err(ControllerClientError::Runtime)?,
+            runtime: ControllerRuntime::new_with_override(
+                local_boot,
+                local_peer_id,
+                local_override,
+            )
+            .map_err(ControllerClientError::Runtime)?,
             transport,
             inbound,
             inbox: ControllerInbox {

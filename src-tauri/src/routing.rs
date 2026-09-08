@@ -134,6 +134,15 @@ impl Default for Router {
 }
 
 impl Router {
+    pub fn with_gate(gate: Arc<LocalOverride>) -> Self {
+        Self {
+            state: RouteState::LocalDesktop,
+            game_mode: false,
+            gate,
+            last_return: None,
+        }
+    }
+
     pub fn state(&self) -> &RouteState {
         &self.state
     }

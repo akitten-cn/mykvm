@@ -33,8 +33,20 @@ pub struct ControllerRuntime {
 
 impl ControllerRuntime {
     pub fn new(local_boot: BootId, local_peer_id: String) -> Result<Self, ControllerRuntimeError> {
+        Self::new_with_override(
+            local_boot,
+            local_peer_id,
+            Arc::new(LocalOverride::default()),
+        )
+    }
+
+    pub fn new_with_override(
+        local_boot: BootId,
+        local_peer_id: String,
+        local_override: Arc<LocalOverride>,
+    ) -> Result<Self, ControllerRuntimeError> {
         Ok(Self {
-            router: Router::default(),
+            router: Router::with_gate(local_override),
             handshake: ControllerHandshake::new(local_boot, local_peer_id)
                 .map_err(ControllerRuntimeError::Protocol)?,
             pending_request: None,
