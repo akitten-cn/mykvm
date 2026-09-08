@@ -128,6 +128,12 @@ test('A43: copied diagnostics and default logs omit private input data', () => {
   assert.match(source, /fn save_layout\([\s\S]*?validate_layout_ipc\(&layout\)\?/)
   assert.match(source, /fn probe_lan_peer\([\s\S]*?validate_peer_host_input\(&host\)\?/)
   assert.match(source, /fn confirm_lan_pairing\([\s\S]*?validate_pairing_code_input\(&code\)\?/)
+  for (const file of ['src-tauri/src/lib.rs', 'src-tauri/src/input.rs', 'src-tauri/src/quic_transport.rs']) {
+    const logCalls = [...read(file).matchAll(/log::\w+!\([\s\S]*?\);/g)].map((match) => match[0])
+    for (const call of logCalls) {
+      assert.doesNotMatch(call, /pair_secret|rgba_base64|\.text\b|key_code|scan_code|transport_public_key/)
+    }
+  }
 })
 
 test('A42: fork cannot automatically run the upstream release workflow', () => {

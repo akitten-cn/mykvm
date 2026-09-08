@@ -2317,20 +2317,7 @@ fn warn_unauthorized_packet(layout: &LayoutState, packet: &InputPacket) {
         *last = Instant::now();
     }
 
-    log::warn!(
-        "rejected input from controller id={} key={}: {}",
-        if packet.origin_device_id.trim().is_empty() {
-            "<none>"
-        } else {
-            packet.origin_device_id.as_str()
-        },
-        if packet.origin_transport_public_key.trim().is_empty() {
-            "<none>"
-        } else {
-            "<set>"
-        },
-        reason
-    );
+    log::warn!("rejected input packet: {reason}");
 }
 
 fn warn_unauthorized_control_packet(layout: &LayoutState, packet: &InputControlPacket) {
@@ -2342,20 +2329,7 @@ fn warn_unauthorized_control_packet(layout: &LayoutState, packet: &InputControlP
         "controller is not in this device's paired-controllers list"
     };
 
-    log::warn!(
-        "rejected input control from controller id={} key={}: {}",
-        if packet.origin_device_id.trim().is_empty() {
-            "<none>"
-        } else {
-            packet.origin_device_id.as_str()
-        },
-        if packet.origin_transport_public_key.trim().is_empty() {
-            "<none>"
-        } else {
-            "<set>"
-        },
-        reason
-    );
+    log::warn!("rejected input control packet: {reason}");
 }
 
 fn packet_targets_local(layout: &LayoutState, target_device_id: &str, local_peer_id: &str) -> bool {

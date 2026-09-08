@@ -1469,12 +1469,8 @@ impl AppRuntime {
                                 let reply =
                                     should_reply_to_discovery(&current_layout, &incoming.peer);
                                 log::debug!(
-                                    "discovery {} from {} id={} key={} cluster={} pairing_required={} -> reply={}",
+                                    "discovery request processed kind={} pairing_required={} reply={}",
                                     incoming.kind,
-                                    source,
-                                    incoming.peer.id,
-                                    if incoming.peer.transport_public_key.is_empty() { "empty" } else { "set" },
-                                    if incoming.peer.cluster_id.is_empty() { "empty" } else { "set" },
                                     incoming.peer.pairing_required,
                                     reply
                                 );
