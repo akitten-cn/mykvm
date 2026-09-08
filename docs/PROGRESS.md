@@ -25,7 +25,7 @@
 |T08.a|完成|独立 MKM2 motion datagram、1024-byte 上限、会话/单调序列和 required reliable floor；latest-wins 调度与接收应用继续实现|
 |T08.b|完成|每次 motion handle 单一绝对位置槽、至多一个待刷新命令、关闭取消和 Receiver 角色限制；接收应用继续实现|
 |T08.c|完成|接收 reliable floor/latest pending、点击与拖动顺序、认证 datagram、控制端序列、Windows V2 发送、bulk/input 公平性和入站并发预算|
-|T08.d|待办|补 display_id/layout_revision、坐标范围和布局变化门控；A29 未通过，因此 T08 父任务保持进行中|
+|T08.d|完成|Prepare/Ready 与 motion 绑定显示器和布局版本；逻辑坐标映射到负原点/缩放后的原生范围，500 ms 显示变化检测失败关闭并释放|
 |T09|完成|三个控制动作、全局注册/冲突回滚、中英文设置、系统与 hook 去重、共享本地门控、物理键释放判定和热键前缀释放；Windows 编译为独立 pending_environment|
 |T10.a|完成|持久化手动游戏模式、中英文开关、hook 首指令原子放行、panic FFI 边界和 context try-lock；桌面/远程重路径迁移留给 T10.b|
 |T10.b|完成|1024 项有界 hook 事件队列；回调只做缓存/原子判断、事件复制和 try_send，慢路径移至捕获线程；满队列失败开放|
@@ -38,4 +38,4 @@ T08.c 最后实现 SHA：`5d8bdb104139738bb7f7c9cfece3391019fe41d1`。提交后�
 
 T09 当前实现 SHA：`9aed9a81aa928ad67ba2bf298d49b63027b44dd6`。提交后检查通过：198 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和相关格式检查，证据日志为本地 `.local-evidence/t09c-postcommit.log`。
 
-设置界面 SHA `d445e9b9757077500f896534b94a1104f3745edd` 已补三个控制热键的中英文录入和说明，前端检查日志为 `.local-evidence/t09d-postcommit.log`。T10.a SHA `2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7` 完成游戏模式最短放行；T10.b SHA `15fd004b5f471f7f83cc3b86fffb1a448e74dfaf` 将其余重路径移出 hook，检查日志为 `.local-evidence/t10b-postcommit.log`。T11 SHA `19191db65aaac1743823538df3d4c4ad066e6c5b` 完成 Windows 单次焦点交接与失败提示，检查日志为 `.local-evidence/t11-postcommit.log`。下一原子任务进入 T08.d 的显示布局版本和坐标门控；完成并整体审查后才考虑打开控制端总门禁。
+设置界面 SHA `d445e9b9757077500f896534b94a1104f3745edd` 已补三个控制热键的中英文录入和说明，前端检查日志为 `.local-evidence/t09d-postcommit.log`。T10.a SHA `2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7` 完成游戏模式最短放行；T10.b SHA `15fd004b5f471f7f83cc3b86fffb1a448e74dfaf` 将其余重路径移出 hook，检查日志为 `.local-evidence/t10b-postcommit.log`。T11 SHA `19191db65aaac1743823538df3d4c4ad066e6c5b` 完成 Windows 单次焦点交接与失败提示，检查日志为 `.local-evidence/t11-postcommit.log`。T08.d SHA `3dfca829cc74e7d4ff4c47ce2fb826ecd10af2ee` 完成显示布局版本和坐标门控。下一原子任务审查控制端总门禁；Windows 构建和双机试用状态仍独立保留。

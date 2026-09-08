@@ -311,9 +311,8 @@
       "method": "Retina、负坐标、不同缩放与 layout_revision",
       "expected": "映射一致，未知布局不乱点",
       "blocking_development": true,
-      "status": "not_run",
-      "partial_evidence": ["input::tests::crossing_accepts_native_screen_coordinates", "input::tests::crossing_uses_native_edge_before_mapping_to_layout"],
-      "remaining": "V2 frames do not yet carry display_id/layout_revision; negative-origin, scale-change and stale-layout rejection remain T08.d."
+      "status": "pass",
+      "evidence": ["../T08d-display-layout-gate.md", "session_runtime::tests::a29_maps_retina_negative_origin_and_rejects_stale_or_out_of_range_layout", "scripts/fork-isolation.test.mjs A29"]
     },
     {
       "id": "A30",

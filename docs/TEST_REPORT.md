@@ -152,3 +152,9 @@ A08 标记 pass。T10.b 以 1024 项有界 try-send 队列将桌面/远程状态
 A09 的路由测试使用拒绝型 FakeFocus，证明单次尝试后恢复本地且不会激活；新增隔离检查核对生产 FocusPort 调用 Windows 原生适配器，适配器只有一次前台交接调用，没有循环、等待、键盘合成或游戏注入，并提供中文 Alt+Tab 回退提示。A03 的既有路由测试证明取消后的 Ready 和 CommitAck 均不能激活旧请求。两项更新为 pass。
 
 实现 SHA `19191db65aaac1743823538df3d4c4ad066e6c5b` 的提交后检查退出码 0：202 个 Rust 库测试、11 项隔离检查、前端 lint/build、Mac cargo check 和干净工作树通过，证据为 `.local-evidence/t11-postcommit.log`。Mac 应用未启动，Windows 编译缺环境，Windows 焦点/物理输入未实测；L01–L03 保持 optional_not_run。
+
+## T08.d 显示布局门控
+
+A29 自动化覆盖逻辑坐标到负原点/缩放原生范围的映射、边界检查、旧 layout_revision 和未知范围拒绝、可靠点击拒绝前不消耗序号，以及布局改变后的会话关闭与按键释放。生产路径每 500 ms 只读刷新显示器；变化后更新广播布局并失败关闭，motion 与按钮/滚轮均在注入前映射。
+
+实现 SHA `3dfca829cc74e7d4ff4c47ce2fb826ecd10af2ee` 的提交后检查退出码 0：203 个 Rust 库测试、12 项隔离检查、前端 lint/build、Mac cargo check 和干净工作树通过，证据为 `.local-evidence/t08d-postcommit.log`。A29 标记 pass，T08 自动化闭环。Mac 应用/显示器拔插、Windows 编译和双机坐标体验未运行。

@@ -608,20 +608,23 @@
       "review_focus": [
         "不能丢相对位移；QUIC流共享拥塞不等于零竞争；不能每移动 spawn task"
       ],
-      "implementation": "in_progress",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "partial",
+        "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
       "evidence": [
         "../T08a-motion-protocol.md",
         "../T08b-motion-slot.md",
-        "../T08c-motion-order-wiring.md"
+        "../T08c-motion-order-wiring.md",
+        "../T08d-display-layout-gate.md",
+        "implementation SHA 3dfca829cc74e7d4ff4c47ce2fb826ecd10af2ee",
+        ".local-evidence/t08d-postcommit.log"
       ],
       "blocked_reason": null,
       "subtasks": [
@@ -658,11 +661,11 @@
         {
           "id": "T08.d",
           "title": "display/layout revision 与坐标范围门控",
-          "implementation": "todo",
-          "review": "pending",
+          "implementation": "done",
+          "review": "approved",
           "verification": {
-            "automated": "not_run",
-            "scope": "A29 remains pending; current V2 frames do not carry display_id/layout_revision."
+            "automated": "pass",
+            "scope": "A29 covers Retina/negative-origin mapping, bounds rejection, stale revision rejection, reliable sequence preservation and layout-change release. Full native suite: 203 Rust tests and 12 isolation tests."
           }
         }
       ]
