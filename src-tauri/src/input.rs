@@ -6850,7 +6850,7 @@ fn inject_key(key_code: u16, down: bool) {
     }
 
     let Some(mac_code) = windows_vk_to_mac_key(key_code) else {
-        log::debug!("inject_key: no mac keycode for windows vk {key_code:#04x}; dropping");
+        log::debug!("inject_key: unsupported key code was dropped");
         return;
     };
     let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
@@ -6870,7 +6870,7 @@ fn inject_key(key_code: u16, down: bool) {
             event.set_flags(flags);
             event.post(CGEventTapLocation::HID);
         }
-        Err(_) => log::warn!("inject_key: failed to build keyboard event for mac code {mac_code}"),
+        Err(_) => log::warn!("inject_key: failed to build keyboard event"),
     }
 }
 

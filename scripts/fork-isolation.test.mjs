@@ -1,9 +1,23 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
+import ts from 'typescript'
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 const json = path => JSON.parse(read(path))
+
+function localeKeys(node, prefix = '', keys = []) {
+  for (const property of node.properties) {
+    if (!ts.isPropertyAssignment(property)) continue
+    const name = property.name.getText().replace(/^['"]|['"]$/g, '')
+    const path = prefix ? `${prefix}.${name}` : name
+    keys.push(path)
+    if (ts.isObjectLiteralExpression(property.initializer)) {
+      localeKeys(property.initializer, path, keys)
+    }
+  }
+  return keys.sort()
+}
 
 test('A42: fork has independent app/data identity and no update artifacts', () => {
   const config = json('src-tauri/tauri.conf.json')
@@ -77,6 +91,43 @@ test('A43/A44: tray exposes Chinese emergency return and pause actions', () => {
   assert.match(source, /"暂停后台服务"/)
   assert.match(source, /"恢复后台服务"/)
   assert.match(source, /fn request_emergency_local[\s\S]*?request_local\(\)[\s\S]*?ControlHotkeyAction::EmergencyLocal/)
+})
+
+test('A44: Chinese and English settings expose the same keys', () => {
+  const source = ts.createSourceFile('i18n.ts', read('src/i18n.ts'), ts.ScriptTarget.Latest, true)
+  let textObject
+  source.forEachChild((node) => {
+    if (!ts.isVariableStatement(node)) return
+    for (const declaration of node.declarationList.declarations) {
+      if (declaration.name.getText() === 'TEXT') {
+        const initializer = ts.isAsExpression(declaration.initializer)
+          ? declaration.initializer.expression
+          : declaration.initializer
+        if (ts.isObjectLiteralExpression(initializer)) textObject = initializer
+      }
+    }
+  })
+  assert.ok(textObject, 'TEXT locale object exists')
+  const locale = (name) => textObject.properties.find((property) => property.name?.getText() === name)?.initializer
+  const cn = locale('cn')
+  const en = locale('en')
+  assert.ok(ts.isObjectLiteralExpression(cn))
+  assert.ok(ts.isObjectLiteralExpression(en))
+  assert.deepEqual(localeKeys(cn), localeKeys(en))
+})
+
+test('A43: copied diagnostics and default logs omit private input data', () => {
+  const source = read('src-tauri/src/lib.rs')
+  const report = source.match(/let mut lines = vec!\[[\s\S]*?Ok\(DiagnosticInfo \{/i)?.[0]
+  assert.ok(report, 'diagnostic report builder is present')
+  assert.doesNotMatch(report, /local_peer\.name|format!\("local:|device\.name|device\.host|log_dir\.display|config_dir\.display/)
+  assert.match(report, /local identity: <redacted>/)
+  assert.match(report, /log dir: <redacted>/)
+  assert.match(report, /config dir: <redacted>/)
+  assert.doesNotMatch(read('src-tauri/src/input.rs'), /log::\w+!\([^\n]*inject_key:[^\n]*(?:key_code|mac_code)/)
+  assert.match(source, /fn save_layout\([\s\S]*?validate_layout_ipc\(&layout\)\?/)
+  assert.match(source, /fn probe_lan_peer\([\s\S]*?validate_peer_host_input\(&host\)\?/)
+  assert.match(source, /fn confirm_lan_pairing\([\s\S]*?validate_pairing_code_input\(&code\)\?/)
 })
 
 test('A42: fork cannot automatically run the upstream release workflow', () => {

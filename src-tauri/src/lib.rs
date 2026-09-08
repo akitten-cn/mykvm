@@ -82,6 +82,8 @@ const FILE_TRANSFER_PROTOCOL: &str = "mykvm.file-transfer.v1";
 const FILE_TRANSFER_CHUNK_BYTES: usize = 256 * 1024;
 const FILE_TRANSFER_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const LOG_MAX_FILE_SIZE_BYTES: u128 = 1024 * 1024;
+const MAX_LAYOUT_IPC_BYTES: usize = 2 * 1024 * 1024;
+const MAX_IPC_HOST_BYTES: usize = 253;
 const AUTOSTART_ARG: &str = "--mykvm-local-autostart";
 const QUIT_EXISTING_ARG: &str = "--mykvm-local-quit-existing";
 const INSTALL_INPUT_SERVICE_ARG: &str = "--install-input-service";
@@ -1841,6 +1843,7 @@ fn save_layout(
     layout: LayoutState,
     state: tauri::State<'_, AppRuntime>,
 ) -> Result<AppStateSnapshot, String> {
+    validate_layout_ipc(&layout)?;
     let (previous_layout, saved_layout) = {
         let mut stored_layout = state
             .layout
@@ -1882,6 +1885,69 @@ fn save_layout(
     sync_screen_switch_shortcuts(&state.app_handle)?;
     sync_control_hotkeys(&state.app_handle)?;
     Ok(state.snapshot())
+}
+
+fn validate_layout_ipc(layout: &LayoutState) -> Result<(), String> {
+    let encoded = serde_json::to_vec(layout)
+        .map_err(|error| format!("设置数据无法编码：{error}"))?;
+    if encoded.len() > MAX_LAYOUT_IPC_BYTES {
+        return Err("设置数据超过 2 MiB 上限。".into());
+    }
+    if !matches!(layout.machine_role.as_str(), "unset" | "server" | "client")
+        || !matches!(layout.input_mode.as_str(), "control" | "receive")
+        || !matches!(layout.language.as_str(), "cn" | "en")
+        || !matches!(layout.theme_mode.as_str(), "system" | "light" | "dark")
+        || !matches!(layout.transport_port_mode.as_str(), "auto" | "fixed")
+    {
+        return Err("设置包含无效的模式值。".into());
+    }
+    if layout.devices.len() > MAX_DISCOVERY_PEERS
+        || layout.paired_controllers.len() > MAX_DISCOVERY_PEERS
+        || layout.trusted_peers.len() > MAX_DISCOVERY_PEERS
+    {
+        return Err("设置中的设备数量超过上限。".into());
+    }
+    for device in &layout.devices {
+        if device.id.len() > 512
+            || device.name.len() > 512
+            || device.host.len() > MAX_IPC_HOST_BYTES
+            || device.screens.len() > 32
+        {
+            return Err("设备设置字段超过上限。".into());
+        }
+        for screen in &device.screens {
+            if screen.id.len() > 512
+                || screen.name.len() > 512
+                || screen.width <= 0
+                || screen.height <= 0
+                || screen.width > 100_000
+                || screen.height > 100_000
+                || !screen.scale.is_finite()
+                || !(0.1..=16.0).contains(&screen.scale)
+            {
+                return Err("显示器设置无效。".into());
+            }
+        }
+    }
+    validate_layout_shortcut_conflicts(layout)
+}
+
+fn validate_peer_host_input(host: &str) -> Result<(), String> {
+    let trimmed = host.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > MAX_IPC_HOST_BYTES
+        || trimmed.chars().any(char::is_control)
+    {
+        return Err("设备地址为空、过长或包含控制字符。".into());
+    }
+    Ok(())
+}
+
+fn validate_pairing_code_input(code: &str) -> Result<(), String> {
+    if code.len() != 6 || !code.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("配对验证码必须是 6 位数字。".into());
+    }
+    Ok(())
 }
 
 fn merge_runtime_owned_layout_fields(
@@ -2124,17 +2190,17 @@ fn diagnostic_info(app: &AppHandle, state: &AppRuntime) -> Result<DiagnosticInfo
                 "stopped"
             }
         ),
-        format!("local: {} / {}", local_peer.name, local_peer.ip),
+        "local identity: <redacted>".to_string(),
         format!(
             "ports: discovery UDP {}, QUIC {}",
             runtime.discovery.port, local_peer.quic_port
         ),
         format!("discovery peers: {}", runtime.discovery.peers.len()),
         format!("paired controllers: {}", layout.paired_controllers.len()),
-        format!("privilege: {}", runtime.privilege.detail),
-        format!("input service: {}", runtime.input_service.detail),
-        format!("log dir: {}", log_dir.display()),
-        format!("config dir: {}", config_dir.display()),
+        format!("privilege elevated: {}", runtime.privilege.is_elevated),
+        format!("input service installed: {}", runtime.input_service.installed),
+        "log dir: <redacted>".to_string(),
+        "config dir: <redacted>".to_string(),
         format!("network hint: {network_hint}"),
         format!("firewall hint: {firewall_hint}"),
     ];
@@ -2142,23 +2208,8 @@ fn diagnostic_info(app: &AppHandle, state: &AppRuntime) -> Result<DiagnosticInfo
         lines.push("known devices: none".into());
     } else {
         lines.push("known devices:".into());
-        for device in &known_devices {
-            let subnet = match device.same_subnet {
-                Some(true) => "same /24",
-                Some(false) => "different /24",
-                None => "subnet unknown",
-            };
-            lines.push(format!(
-                "- {} {} host={} online={} inputReady={} UDP={} QUIC={} {}",
-                device.role,
-                device.name,
-                device.host,
-                device.online,
-                device.input_ready,
-                device.discovery_port,
-                device.quic_port,
-                subnet
-            ));
+        for (index, device) in known_devices.iter().enumerate() {
+            lines.push(diagnostic_device_report_line(index, device));
         }
     }
 
@@ -2179,6 +2230,24 @@ fn diagnostic_info(app: &AppHandle, state: &AppRuntime) -> Result<DiagnosticInfo
         network_hint,
         firewall_hint,
     })
+}
+
+fn diagnostic_device_report_line(index: usize, device: &DiagnosticDevice) -> String {
+    let subnet = match device.same_subnet {
+        Some(true) => "same /24",
+        Some(false) => "different /24",
+        None => "subnet unknown",
+    };
+    format!(
+        "- peer-{} role={} online={} inputReady={} UDP={} QUIC={} {}",
+        index + 1,
+        device.role,
+        device.online,
+        device.input_ready,
+        device.discovery_port,
+        device.quic_port,
+        subnet
+    )
 }
 
 fn diagnostic_network_hint(devices: &[DiagnosticDevice]) -> String {
@@ -3011,6 +3080,9 @@ fn read_clipboard_text() -> Result<String, String> {
 
 #[tauri::command]
 fn write_clipboard_text(text: String) -> Result<(), String> {
+    if text.len() > CLIPBOARD_TEXT_LIMIT_MAX_BYTES {
+        return Err("剪贴板文本超过 1.5 MiB 上限。".into());
+    }
     clipboard::write_text(&text)
 }
 
@@ -3083,6 +3155,7 @@ async fn scan_lan_peers(state: tauri::State<'_, AppRuntime>) -> Result<Discovery
 
 #[tauri::command]
 fn probe_lan_peer(host: String, state: tauri::State<'_, AppRuntime>) -> Result<LanPeer, String> {
+    validate_peer_host_input(&host)?;
     state.start_discovery()?;
     let layout = state
         .layout
@@ -3104,6 +3177,7 @@ fn request_lan_pairing(
     host: String,
     state: tauri::State<'_, AppRuntime>,
 ) -> Result<LanPeer, String> {
+    validate_peer_host_input(&host)?;
     state.start_discovery()?;
     let layout = state
         .layout
@@ -3121,7 +3195,7 @@ fn request_lan_pairing(
     let peer = match request_pairing_for_peer(&local_peer, &host, discovery_base_port(&layout)) {
         Ok(peer) => peer,
         Err(error) => {
-            log::warn!("LAN pairing request failed host={host}: {error}");
+            log::warn!("LAN pairing request failed: {error}");
             return Err(error);
         }
     };
@@ -3135,6 +3209,8 @@ fn confirm_lan_pairing(
     code: String,
     state: tauri::State<'_, AppRuntime>,
 ) -> Result<LanPeer, String> {
+    validate_peer_host_input(&host)?;
+    validate_pairing_code_input(&code)?;
     state.start_discovery()?;
     let layout = state
         .layout
@@ -3160,7 +3236,7 @@ fn confirm_lan_pairing(
     ) {
         Ok(peer) => peer,
         Err(error) => {
-            log::warn!("LAN pairing confirm failed host={host}: {error}");
+            log::warn!("LAN pairing confirmation failed: {error}");
             return Err(error);
         }
     };
@@ -8733,6 +8809,48 @@ mod tests {
             actions.take(),
             Some(game_mode::ControlHotkeyAction::EmergencyLocal)
         );
+    }
+
+    #[test]
+    fn a43_ipc_validation_rejects_oversized_and_malformed_fields() {
+        let mut layout = test_layout();
+        layout.devices[0].name = "x".repeat(MAX_LAYOUT_IPC_BYTES);
+        assert!(validate_layout_ipc(&layout).is_err());
+
+        let mut layout = test_layout();
+        layout.devices[0].screens[0].scale = f64::NAN;
+        assert!(validate_layout_ipc(&layout).is_err());
+
+        let mut layout = test_layout();
+        layout.language = "zh<script>".into();
+        assert!(validate_layout_ipc(&layout).is_err());
+
+        assert!(validate_peer_host_input("host.local").is_ok());
+        assert!(validate_peer_host_input("host.local\nforged").is_err());
+        assert!(validate_peer_host_input(&"x".repeat(MAX_IPC_HOST_BYTES + 1)).is_err());
+        assert!(validate_pairing_code_input("012345").is_ok());
+        assert!(validate_pairing_code_input("12 345").is_err());
+    }
+
+    #[test]
+    fn a43_diagnostic_device_line_redacts_private_fixture_values() {
+        let secret = "password=hunter2";
+        let line = diagnostic_device_report_line(
+            0,
+            &DiagnosticDevice {
+                name: secret.into(),
+                host: "10.22.33.44".into(),
+                role: "receiver".into(),
+                online: true,
+                input_ready: true,
+                discovery_port: 47833,
+                quic_port: 47834,
+                same_subnet: Some(true),
+            },
+        );
+        assert!(!line.contains(secret));
+        assert!(!line.contains("10.22.33.44"));
+        assert!(line.contains("peer-1 role=receiver"));
     }
 
     #[cfg(all(unix, not(target_os = "windows")))]
