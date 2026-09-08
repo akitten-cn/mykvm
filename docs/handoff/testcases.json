@@ -237,9 +237,8 @@
       "method": "填满有界 critical 队列",
       "expected": "本地恢复，不静默丢 key-up 后继续",
       "blocking_development": true,
-      "status": "not_run",
-      "partial_evidence": ["../T06c-input-stream.md", "quic_transport::tests::critical_input_queue_enforces_frame_and_byte_budgets"],
-      "remaining": "Transport overflow is explicit and bounded; T07 must connect it to local recovery and release-ledger behavior."
+      "status": "pass",
+      "evidence": ["../T06c-input-stream.md", "../T08c-motion-order-wiring.md", "quic_transport::tests::critical_input_queue_enforces_frame_and_byte_budgets", "controller_client::tests::input_queue_failure_restores_local_and_disconnects", "session_runtime::tests::input_stream_close_ends_session_and_releases_immediately"]
     },
     {
       "id": "A23",
@@ -248,7 +247,8 @@
       "method": "延迟移动 datagram，先传可靠点击",
       "expected": "点击使用自己的位置快照",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T08c-motion-order-wiring.md", "session_runtime::tests::reliable_button_snapshot_precedes_newer_drag_motion"]
     },
     {
       "id": "A24",
@@ -257,7 +257,8 @@
       "method": "按钮消息延迟，后续位置先到",
       "expected": "位置等待 required_reliable_seq，迟到旧位置被忽略",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T08c-motion-order-wiring.md", "session_runtime::tests::future_motion_is_latest_wins_and_waits_for_reliable_input", "session_runtime::tests::reliable_button_snapshot_precedes_newer_drag_motion"]
     },
     {
       "id": "A25",
@@ -266,7 +267,8 @@
       "method": "大量相对位移转绝对/累计再合并",
       "expected": "总位移正确，不因丢中间包缩短",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T08b-motion-slot.md", "../T08c-motion-order-wiring.md", "input::tests::a25_relative_motion_accumulates_before_absolute_coalescing", "quic_transport::tests::motion_slot_keeps_only_the_latest_frame_and_one_flush_command"]
     },
     {
       "id": "A26",
@@ -275,7 +277,8 @@
       "method": "fake bulk 长时间阻塞同时送关键输入",
       "expected": "输入队列仍被调度；不据此宣称真实网络 QoS",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T08c-motion-order-wiring.md", "quic_transport::tests::blocked_bulk_handlers_do_not_starve_critical_input"]
     },
     {
       "id": "A27",
@@ -284,7 +287,8 @@
       "method": "并发超大 stream、无授权 bulk",
       "expected": "有界拒绝，不无限 spawn 或分配",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T08c-motion-order-wiring.md", "quic_transport::tests::inbound_stream_budget_rejects_excess_work_and_recovers", "protocol_v2::tests::a14_rejects_oversize_before_payload_allocation", "quic_transport::tests::untrusted_loopback_connection_never_reaches_datagram_handler"]
     },
     {
       "id": "A28",
@@ -302,7 +306,9 @@
       "method": "Retina、负坐标、不同缩放与 layout_revision",
       "expected": "映射一致，未知布局不乱点",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": ["input::tests::crossing_accepts_native_screen_coordinates", "input::tests::crossing_uses_native_edge_before_mapping_to_layout"],
+      "remaining": "V2 frames do not yet carry display_id/layout_revision; negative-origin, scale-change and stale-layout rejection remain T08.d."
     },
     {
       "id": "A30",

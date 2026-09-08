@@ -24,10 +24,12 @@
 |T07.b|完成|input stream 关闭立即结束并释放；3 秒活动租约、Ping 刷新、释放失败状态和 AppRuntime 可见错误；V2 原生接收门禁已打开|
 |T08.a|完成|独立 MKM2 motion datagram、1024-byte 上限、会话/单调序列和 required reliable floor；latest-wins 调度与接收应用继续实现|
 |T08.b|完成|每次 motion handle 单一绝对位置槽、至多一个待刷新命令、关闭取消和 Receiver 角色限制；接收应用继续实现|
+|T08.c|完成|接收 reliable floor/latest pending、点击与拖动顺序、认证 datagram、控制端序列、Windows V2 发送、bulk/input 公平性和入站并发预算|
+|T08.d|待办|补 display_id/layout_revision、坐标范围和布局变化门控；A29 未通过，因此 T08 父任务保持进行中|
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
 
-T08.b 实现 SHA：`cfa1b995f823e46f5187060ae45c5fd094b877db`。提交后完整检查通过：182 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查，证据日志为本地 `.local-evidence/t08b-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
+T08.c 最后实现 SHA：`5d8bdb104139738bb7f7c9cfece3391019fe41d1`。提交后完整检查通过：191 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查，证据日志为本地 `.local-evidence/t08-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
 
 平台证据独立记录：Mac 库编译及前端构建通过；Mac 应用打包和运行未执行；Windows 构建 pending_environment；Windows/LOL 实机 optional_not_run。没有安装包、公开 fork、推送或发布。
 
-下一原子任务为 T08.c，实现接收端 motion 顺序门控和 Windows 发送接线。完成 T08 后继续 T09–T11，再审查打开控制端总门禁。旧 LAN 开关保持关闭；剪贴板、完整中文设置、后台生命周期和预览打包仍需按任务表实现与验收。
+下一原子任务按依赖进入 T09，完成 Windows 指定设备热键协调和真实物理释放判定；T08.d 与 T11 的目标显示/焦点工作一起闭环。T08、T09–T11 全部通过后才审查打开控制端总门禁。旧 LAN 开关保持关闭；剪贴板、完整中文设置、后台生命周期和预览打包仍需按任务表实现与验收。

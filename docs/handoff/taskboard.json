@@ -611,7 +611,7 @@
       "implementation": "in_progress",
       "review": "pending",
       "verification": {
-        "automated": "pass",
+        "automated": "partial",
         "mac_build": "pass",
         "mac_runtime": "not_run",
         "windows_build": "not_run",
@@ -620,7 +620,8 @@
       },
       "evidence": [
         "../T08a-motion-protocol.md",
-        "../T08b-motion-slot.md"
+        "../T08b-motion-slot.md",
+        "../T08c-motion-order-wiring.md"
       ],
       "blocked_reason": null,
       "subtasks": [
@@ -647,8 +648,22 @@
         {
           "id": "T08.c",
           "title": "接收顺序与 Windows motion 接线",
+          "implementation": "done",
+          "review": "approved",
+          "verification": {
+            "automated": "pass",
+            "scope": "Receiver reliable-floor/latest-pending tests, controller sequence and failure tests, authenticated production routing, Windows source wiring, real QUIC bulk/input fairness, inbound stream budget, and relative-delta accumulation. Full native suite: 191 Rust tests and 9 isolation tests."
+          }
+        },
+        {
+          "id": "T08.d",
+          "title": "display/layout revision 与坐标范围门控",
           "implementation": "todo",
-          "review": "pending"
+          "review": "pending",
+          "verification": {
+            "automated": "not_run",
+            "scope": "A29 remains pending; current V2 frames do not carry display_id/layout_revision."
+          }
         }
       ]
     },

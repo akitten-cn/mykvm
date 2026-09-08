@@ -122,3 +122,13 @@ Windows 交叉检查实际尝试后退出码 101，失败发生在项目代码�
 单元测试在消费 transport 命令前连续提交 100 帧，证明队列只有一个 flush 且保留 sequence 100 的最终坐标，同时覆盖关闭清理。`t08b-native` 完整检查退出码 0：182 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查通过，日志为本地 `.local-evidence/t08b-native.log`。接收端尚未应用 motion，Windows 生产发送也尚未接入，因此 A22–A27/A29 仍只具备部分证据，不标记端到端通过。
 
 提交后以实现 SHA `cfa1b995f823e46f5187060ae45c5fd094b877db` 复跑相同 8 个步骤，全部退出码为 0，日志为本地 `.local-evidence/t08b-postcommit.log`。
+
+## T08.c motion 顺序、发送和调度增量
+
+接收端 3 项新增测试覆盖 future reliable dependency 的 latest-only 缓存、可靠点击位置先于后续拖动、错误连接/End 后 motion 拒绝；pressed-state 测试验证拖动按钮及释放位置随 motion 更新。控制端测试覆盖初始位置、可靠依赖、按钮 sequence 强制重写、首帧前拒绝 pointer critical event，以及 motion 失败恢复本地。
+
+Windows 生产路径在激活后发送首帧，并在原物理 delta 累计路径上发送绝对位置。A25 测试累计 1000 次相对位移，结合 motion-slot 的 100 帧最终位置测试证明中间覆盖不缩短总位移。Windows cfg 仍缺 target 工具链，代码尚未在 Windows 编译。
+
+A26 使用真实本机 QUIC 回环：两个 bulk handler 同时阻塞时，持久可靠 input 仍在断言期限内到达。bulk handler 移到有界 blocking pool，接收端全局最多 8 个活跃 stream task；预算耗尽/恢复、帧尺寸上限和未认证连接拒绝分别由现有测试覆盖。这里不宣称真实网络 QoS。
+
+最终实现 SHA `5d8bdb104139738bb7f7c9cfece3391019fe41d1` 的 `t08-postcommit` 检查退出码 0：191 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查通过。A22–A27 更新为 pass。A29 仍为 not_run：协议尚未携带/校验 display_id 和 layout_revision，T08 父任务保持 in_progress。
