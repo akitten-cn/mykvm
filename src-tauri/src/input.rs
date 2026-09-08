@@ -487,6 +487,77 @@ fn control_hotkeys_match_vk(
     .find_map(|(hotkey, action)| hotkey_matches_vk(hotkey, key_code, modifiers).then_some(action))
 }
 
+#[derive(Clone, Copy)]
+struct ControlHotkeyBinding {
+    action: crate::game_mode::ControlHotkeyAction,
+    key_code: u16,
+    modifiers: HotkeyModifiers,
+}
+
+impl ControlHotkeyBinding {
+    fn matches(self, key_code: u16, modifiers: HotkeyModifiers) -> bool {
+        self.key_code == key_code && self.modifiers == modifiers
+    }
+}
+
+fn parse_control_hotkey_binding(
+    value: &str,
+    action: crate::game_mode::ControlHotkeyAction,
+) -> Option<ControlHotkeyBinding> {
+    let normalized = value.trim().to_ascii_lowercase().replace(' ', "");
+    if normalized.is_empty()
+        || matches!(normalized.as_str(), "disabled" | "disable" | "off" | "none")
+    {
+        return None;
+    }
+    let mut modifiers = HotkeyModifiers::default();
+    let mut key_code = None;
+    for part in normalized.split('+').filter(|part| !part.is_empty()) {
+        match part {
+            "ctrl" | "control" => modifiers.ctrl = true,
+            "alt" | "option" => modifiers.alt = true,
+            "shift" => modifiers.shift = true,
+            "meta" | "cmd" | "command" | "win" | "windows" | "super" | "os" => {
+                modifiers.meta = true;
+            }
+            key => {
+                if key_code.is_some() {
+                    return None;
+                }
+                key_code = hotkey_key_to_windows_vk(key);
+            }
+        }
+    }
+    Some(ControlHotkeyBinding {
+        action,
+        key_code: key_code?,
+        modifiers,
+    })
+}
+
+fn control_hotkey_bindings(
+    hotkeys: &crate::ControlHotkeys,
+) -> [Option<ControlHotkeyBinding>; 3] {
+    [
+        parse_control_hotkey_binding(
+            &hotkeys.emergency_return,
+            crate::game_mode::ControlHotkeyAction::EmergencyLocal,
+        ),
+        parse_control_hotkey_binding(
+            &hotkeys.return_windows,
+            crate::game_mode::ControlHotkeyAction::GoLocal,
+        ),
+        parse_control_hotkey_binding(
+            &hotkeys.control_mac,
+            crate::game_mode::ControlHotkeyAction::GoMac,
+        ),
+    ]
+}
+
+fn try_offer_hook_event<T>(sender: &mpsc::SyncSender<T>, event: T) -> bool {
+    sender.try_send(event).is_ok()
+}
+
 fn hotkey_matches_vk(value: &str, key_code: u16, modifiers: HotkeyModifiers) -> bool {
     let normalized = value.trim().to_ascii_lowercase().replace(' ', "");
     if normalized.is_empty()
@@ -1274,14 +1345,18 @@ fn start_platform_capture(
 
     thread::spawn(move || {
         refresh_windows_input_desktop_cache();
+        let (local_peer_id, hotkey_bindings) = match layout_state.lock() {
+            Ok(layout) => (
+                crate::local_peer_from_layout(&layout).id,
+                control_hotkey_bindings(&layout.control_hotkeys),
+            ),
+            Err(_) => {
+                let _ = ready_tx.send(Err("layout state lock poisoned".into()));
+                return;
+            }
+        };
         let v2_controller = if controller_v2 {
-            let local_peer_id = match layout_state.lock() {
-                Ok(layout) => crate::local_peer_from_layout(&layout).id,
-                Err(_) => {
-                    let _ = ready_tx.send(Err("layout state lock poisoned".into()));
-                    return;
-                }
-            };
+            let local_peer_id = local_peer_id;
             let boot = match BootId::generate() {
                 Ok(boot) => boot,
                 Err(error) => {
@@ -1311,6 +1386,7 @@ fn start_platform_capture(
         } else {
             None
         };
+        let (hook_events, hook_event_receiver) = mpsc::sync_channel(1024);
         let context = Arc::new(WindowsCaptureContext {
             quic_transport,
             layout_state,
@@ -1325,6 +1401,8 @@ fn start_platform_capture(
             control_action,
             control_hotkey_deduper,
             local_override,
+            control_hotkey_bindings: hotkey_bindings,
+            hook_events,
             anchor: Mutex::new(None),
             last_point: Mutex::new(None),
             last_mouse_move_sent: Mutex::new(None),
@@ -1382,13 +1460,16 @@ fn start_platform_capture(
         let mut message = MSG::default();
         let mut last_desktop_check = Instant::now() - Duration::from_millis(200);
         while !stop.load(Ordering::Relaxed) {
+            drain_control_action_windows(&context);
+            while let Ok(event) = hook_event_receiver.try_recv() {
+                process_windows_hook_event(&context, event);
+            }
             if last_desktop_check.elapsed() >= Duration::from_millis(100) {
                 last_desktop_check = Instant::now();
                 if !refresh_windows_input_desktop_cache() {
                     release_windows_remote_control(&context, true);
                 }
             }
-            drain_control_action_windows(&context);
             drain_switch_request_windows(&context);
             drain_v2_controller_windows(&context);
             // Low-level hook callbacks are dispatched only while this thread
@@ -2853,6 +2934,8 @@ struct WindowsCaptureContext {
     control_action: Arc<crate::game_mode::ControlActionSlot>,
     control_hotkey_deduper: Arc<crate::game_mode::HotkeyDeduper>,
     local_override: Arc<crate::routing::LocalOverride>,
+    control_hotkey_bindings: [Option<ControlHotkeyBinding>; 3],
+    hook_events: mpsc::SyncSender<WindowsHookEvent>,
     anchor: Mutex<Option<(f64, f64)>>,
     last_point: Mutex<Option<(f64, f64)>>,
     last_mouse_move_sent: Mutex<Option<Instant>>,
@@ -2867,6 +2950,24 @@ struct WindowsCaptureContext {
     v2_pending: Mutex<Option<PendingWindowsTarget>>,
     v2_epoch: Instant,
     v2_motion_sequence: AtomicU64,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy)]
+enum WindowsHookEvent {
+    Mouse {
+        message: u32,
+        x: i32,
+        y: i32,
+        mouse_data: u32,
+    },
+    Key {
+        message: u32,
+        key_code: u32,
+        scan_code: u32,
+        flags: u32,
+        modifiers: HotkeyModifiers,
+    },
 }
 
 #[cfg(target_os = "windows")]
@@ -3356,6 +3457,98 @@ fn set_control_clipboard_target(
 }
 
 #[cfg(target_os = "windows")]
+fn process_windows_hook_event(context: &WindowsCaptureContext, event: WindowsHookEvent) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL,
+        WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_XBUTTONDOWN,
+        WM_XBUTTONUP,
+    };
+
+    match event {
+        WindowsHookEvent::Mouse {
+            message,
+            x,
+            y,
+            mouse_data,
+        } => {
+            if context.v2_controller.is_some()
+                && context.local_override.is_local()
+                && context.remote_active.load(Ordering::Acquire)
+            {
+                return;
+            }
+            match message {
+            WM_MOUSEMOVE => {
+                let _ = handle_windows_mouse_move(context, x as f64, y as f64);
+            }
+            WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONDOWN | WM_RBUTTONUP | WM_MBUTTONDOWN
+            | WM_MBUTTONUP | WM_XBUTTONDOWN | WM_XBUTTONUP => {
+                let _ = handle_windows_mouse_button(context, message, mouse_data);
+            }
+            WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
+                let _ = handle_windows_scroll(context, message, mouse_data);
+            }
+            _ => {}
+            }
+        }
+        WindowsHookEvent::Key {
+            message,
+            key_code,
+            scan_code,
+            flags,
+            modifiers,
+        } => {
+            if context.v2_controller.is_some() && context.local_override.is_local() {
+                return;
+            }
+            let down = matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN);
+            if down
+                && context
+                    .layout_state
+                    .lock()
+                    .map(|layout| {
+                        screen_switch_hotkeys_match_vk(
+                            &layout.screen_switch_hotkeys,
+                            key_code as u16,
+                            modifiers,
+                        )
+                    })
+                    .unwrap_or(false)
+            {
+                release_windows_remote_control(context, false);
+                return;
+            }
+            let target = context
+                .active
+                .lock()
+                .ok()
+                .and_then(|active| active.as_ref().map(|active| active.target.clone()));
+            let Some(target) = target else { return };
+            if context.v2_controller.is_some() {
+                if v2_key_event(key_code, scan_code, flags, down)
+                    .is_some_and(|event| send_v2_windows_input(context, event))
+                {
+                    track_forwarded_key(&context.pressed_keys, key_code as u16, down);
+                }
+                return;
+            }
+            if send_packet(
+                &context.quic_transport,
+                &target,
+                InputEvent::Key {
+                    key_code: key_code as u16,
+                    down,
+                },
+                &context.layout_state,
+                &context.input_events,
+            ) {
+                track_forwarded_key(&context.pressed_keys, key_code as u16, down);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 unsafe extern "system" fn windows_mouse_proc(code: i32, wparam: usize, lparam: isize) -> isize {
     use windows_sys::Win32::UI::WindowsAndMessaging::CallNextHookEx;
 
@@ -3376,9 +3569,7 @@ unsafe extern "system" fn windows_mouse_proc(code: i32, wparam: usize, lparam: i
 #[cfg(target_os = "windows")]
 unsafe fn windows_mouse_proc_inner(code: i32, wparam: usize, lparam: isize) -> isize {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, MSLLHOOKSTRUCT, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
-        WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_XBUTTONDOWN,
-        WM_XBUTTONUP,
+        CallNextHookEx, MSLLHOOKSTRUCT, WM_MOUSEMOVE,
     };
 
     if code < 0 {
@@ -3388,33 +3579,41 @@ unsafe fn windows_mouse_proc_inner(code: i32, wparam: usize, lparam: isize) -> i
     let Some(context) = windows_capture_context() else {
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
     };
-    if context.v2_controller.is_some()
-        && context.local_override.is_local()
-        && context.remote_active.load(Ordering::Acquire)
-    {
-        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
-    }
     if !cached_windows_input_desktop_is_default() {
-        release_windows_remote_control(&context, true);
+        context.local_override.request_local();
+        context
+            .control_action
+            .offer(crate::game_mode::ControlHotkeyAction::GoLocal);
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
     }
 
     let event = unsafe { *(lparam as *const MSLLHOOKSTRUCT) };
     let message = wparam as u32;
-    let handled = match message {
-        WM_MOUSEMOVE => handle_windows_mouse_move(&context, event.pt.x as f64, event.pt.y as f64),
-        WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONDOWN | WM_RBUTTONUP | WM_MBUTTONDOWN
-        | WM_MBUTTONUP | WM_XBUTTONDOWN | WM_XBUTTONUP => {
-            // For the X (side) buttons the pressed button rides the high word of
-            // mouseData (XBUTTON1 = back, XBUTTON2 = forward); other buttons
-            // ignore it.
-            handle_windows_mouse_button(&context, message, event.mouseData)
-        }
-        WM_MOUSEWHEEL | WM_MOUSEHWHEEL => handle_windows_scroll(&context, message, event.mouseData),
-        _ => false,
+    let capturing = if context.v2_controller.is_some() {
+        !context.local_override.is_local()
+    } else {
+        context.remote_active.load(Ordering::Acquire)
     };
-
-    if handled {
+    if !capturing && message != WM_MOUSEMOVE {
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+    }
+    if !try_offer_hook_event(
+        &context.hook_events,
+        WindowsHookEvent::Mouse {
+            message,
+            x: event.pt.x,
+            y: event.pt.y,
+            mouse_data: event.mouseData,
+        },
+    )
+    {
+        context.local_override.request_local();
+        context
+            .control_action
+            .offer(crate::game_mode::ControlHotkeyAction::GoLocal);
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+    }
+    if capturing {
         1
     } else {
         unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
@@ -3453,95 +3652,66 @@ unsafe fn windows_keyboard_proc_inner(code: i32, wparam: usize, lparam: isize) -
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
     };
     if !cached_windows_input_desktop_is_default() {
-        release_windows_remote_control(&context, true);
+        context.local_override.request_local();
+        context
+            .control_action
+            .offer(crate::game_mode::ControlHotkeyAction::GoLocal);
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
     }
 
     let message = wparam as u32;
-
-    if matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP) {
-        let event = unsafe { *(lparam as *const KBDLLHOOKSTRUCT) };
-        let key_code = event.vkCode as u16;
-        let down = matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN);
-        let control_action = context.layout_state.lock().ok().and_then(|layout| {
-            (layout.machine_role == "server")
-                .then(|| {
-                    control_hotkeys_match_vk(
-                        &layout.control_hotkeys,
-                        key_code,
-                        windows_current_hotkey_modifiers(),
-                    )
-                })
-                .flatten()
-        });
-        if let Some(action) = control_action {
-            crate::game_mode::dispatch_control_hotkey(
-                &context.control_hotkey_deduper,
-                &context.control_action,
-                &context.local_override,
-                action,
-                down,
-            );
-            return 1;
+    if !matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP) {
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+    }
+    let event = unsafe { *(lparam as *const KBDLLHOOKSTRUCT) };
+    let key_code = event.vkCode as u16;
+    let down = matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN);
+    let modifiers = windows_current_hotkey_modifiers();
+    let control_action = context.control_hotkey_bindings.iter().flatten().find_map(|binding| {
+        if (down && binding.matches(key_code, modifiers)) || (!down && binding.key_code == key_code)
+        {
+            Some(binding.action)
+        } else {
+            None
         }
+    });
+    if let Some(action) = control_action {
+        crate::game_mode::dispatch_control_hotkey(
+            &context.control_hotkey_deduper,
+            &context.control_action,
+            &context.local_override,
+            action,
+            down,
+        );
+        return 1;
     }
 
-    if context.v2_controller.is_some() && context.local_override.is_local() {
-        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
-    }
-
-    let active = context
-        .active
-        .lock()
-        .ok()
-        .and_then(|active| active.as_ref().map(|active| active.target.clone()));
-    let Some(target) = active else {
-        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+    let capturing = if context.v2_controller.is_some() {
+        !context.local_override.is_local()
+    } else {
+        context.remote_active.load(Ordering::Acquire)
     };
-
-    if matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP) {
-        let event = unsafe { *(lparam as *const KBDLLHOOKSTRUCT) };
-        let key_code = event.vkCode as u16;
-        let down = matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN);
-        if down && windows_event_matches_screen_switch_hotkey(&context, key_code) {
-            log::info!("screen switch hotkey returning to local from keyboard hook");
-            release_windows_remote_control(&context, false);
-            return 1;
-        }
-        if context.v2_controller.is_some() {
-            if v2_key_event(event.vkCode, event.scanCode, event.flags, down)
-                .is_some_and(|event| send_v2_windows_input(&context, event))
-            {
-                track_forwarded_key(&context.pressed_keys, key_code, down);
-                return 1;
-            }
-            return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
-        }
-        if send_packet(
-            &context.quic_transport,
-            &target,
-            InputEvent::Key { key_code, down },
-            &context.layout_state,
-            &context.input_events,
-        ) {
-            track_forwarded_key(&context.pressed_keys, key_code, down);
-            return 1;
-        }
+    if !capturing {
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
     }
-
-    unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
-}
-
-#[cfg(target_os = "windows")]
-fn windows_event_matches_screen_switch_hotkey(
-    context: &WindowsCaptureContext,
-    key_code: u16,
-) -> bool {
-    screen_switch_hotkey_matches_vk(
-        &context.layout_state,
-        key_code,
-        windows_current_hotkey_modifiers(),
+    if !try_offer_hook_event(
+        &context.hook_events,
+        WindowsHookEvent::Key {
+            message,
+            key_code: event.vkCode,
+            scan_code: event.scanCode,
+            flags: event.flags,
+            modifiers,
+        },
     )
+    {
+        context.local_override.request_local();
+        context
+            .control_action
+            .offer(crate::game_mode::ControlHotkeyAction::GoLocal);
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+    }
+    1
 }
 
 #[cfg(target_os = "windows")]
@@ -7309,6 +7479,40 @@ mod tests {
             ),
             Some(crate::game_mode::ControlHotkeyAction::EmergencyLocal)
         );
+    }
+
+    #[test]
+    fn control_hotkeys_are_preparsed_for_lock_free_hook_matching() {
+        let bindings = control_hotkey_bindings(&crate::ControlHotkeys::default());
+        let emergency = bindings[0].expect("emergency binding");
+        assert_eq!(
+            emergency.action,
+            crate::game_mode::ControlHotkeyAction::EmergencyLocal
+        );
+        assert!(emergency.matches(
+            0x79,
+            HotkeyModifiers {
+                ctrl: true,
+                alt: true,
+                shift: true,
+                ..HotkeyModifiers::default()
+            }
+        ));
+        assert!(!emergency.matches(
+            0x79,
+            HotkeyModifiers {
+                ctrl: true,
+                alt: true,
+                ..HotkeyModifiers::default()
+            }
+        ));
+    }
+
+    #[test]
+    fn a28_hook_queue_offer_never_waits_when_full() {
+        let (sender, _receiver) = mpsc::sync_channel(1);
+        assert!(try_offer_hook_event(&sender, 1));
+        assert!(!try_offer_hook_event(&sender, 2));
     }
 
     #[test]

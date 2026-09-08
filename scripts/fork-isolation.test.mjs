@@ -94,7 +94,14 @@ test('A08/A28: Windows local game hooks bypass context and contain panics', () =
   const gameMode = read('src-tauri/src/game_mode.rs')
   assert.match(gameMode, /static LOCAL_GAME_MODE: AtomicBool/)
   const input = read('src-tauri/src/input.rs')
+  assert.match(input, /fn windows_capture_context\(\)[\s\S]*?WINDOWS_CAPTURE_CONTEXT[\s\S]*?\.try_lock\(\)/)
   assert.match(input, /fn windows_mouse_proc\([\s\S]*?local_game_mode_enabled\(\)[\s\S]*?CallNextHookEx[\s\S]*?catch_unwind[\s\S]*?windows_mouse_proc_inner/)
   assert.match(input, /fn windows_keyboard_proc\([\s\S]*?local_game_mode_enabled\(\)[\s\S]*?CallNextHookEx[\s\S]*?catch_unwind[\s\S]*?windows_keyboard_proc_inner/)
   assert.match(input, /Err\(_\)[\s\S]*?local_override\.request_local\(\)[\s\S]*?CallNextHookEx/)
+  for (const name of ['windows_mouse_proc_inner', 'windows_keyboard_proc_inner']) {
+    const body = input.match(new RegExp(`unsafe fn ${name}\\([\\s\\S]*?\\n\\}`))?.[0]
+    assert.ok(body, `${name} body is present`)
+    assert.doesNotMatch(body, /\.lock\(\)|handle_windows_|send_v2_|send_packet|set_windows_cursor|ShowCursor/)
+    assert.match(body, /try_offer_hook_event\([\s\S]*?WindowsHookEvent/)
+  }
 })

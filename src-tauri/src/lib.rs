@@ -1774,6 +1774,7 @@ fn runtime_relevant_layout_changed(previous: &LayoutState, next: &LayoutState) -
     previous.input_mode != next.input_mode
         || previous.machine_role != next.machine_role
         || previous.clipboard_sync != next.clipboard_sync
+        || previous.control_hotkeys != next.control_hotkeys
         || previous.transport_port_mode != next.transport_port_mode
         || previous.transport_port != next.transport_port
 }
