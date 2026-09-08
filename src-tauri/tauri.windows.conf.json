@@ -1,8 +1,7 @@
 {
   "bundle": {
-    "externalBin": [
-      "binaries/mykvm-input-helper"
-    ],
-    "targets": ["nsis"]
+    "targets": [
+      "nsis"
+    ]
   }
 }

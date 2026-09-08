@@ -6,9 +6,9 @@ pub const RIGHT_BUTTON_MASK: u64 = 1 << 1;
 pub const MIDDLE_BUTTON_MASK: u64 = 1 << 2;
 pub const BACK_BUTTON_MASK: u64 = 1 << 3;
 pub const FORWARD_BUTTON_MASK: u64 = 1 << 4;
-pub const INPUT_PIPE_PREFIX: &str = r"\\.\pipe\mykvm-input-s";
-pub const INPUT_SERVICE_NAME: &str = "MyKVMInputService";
-pub const INPUT_SERVICE_DISPLAY_NAME: &str = "MyKVM Lock Screen Input Service";
+pub const INPUT_PIPE_PREFIX: &str = r"\\.\pipe\mykvm-local-input-s";
+pub const INPUT_SERVICE_NAME: &str = "MyKVMLocalInputService";
+pub const INPUT_SERVICE_DISPLAY_NAME: &str = "MyKVM Local (disabled privileged helper)";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -64,7 +64,7 @@ pub fn input_helper_status_path(session_id: u32) -> PathBuf {
     let base = std::env::var_os("ProgramData")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
-    base.join("MyKVM")
+    base.join("MyKVM Local")
         .join(format!("input-helper-status-s{session_id}.txt"))
 }
 

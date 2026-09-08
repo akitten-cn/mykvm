@@ -2193,6 +2193,10 @@ fn note_windows_helper_unavailable(error: &str) {
 
 #[cfg(target_os = "windows")]
 fn should_route_to_windows_helper(command: &InputCommand) -> bool {
+    if !crate::fork_policy::PRIVILEGED_FEATURES_ENABLED {
+        return false;
+    }
+
     // SecureAttention (Ctrl+Alt+Del) always needs the privileged helper —
     // SendSAS requires SYSTEM context and cannot be issued from the user app.
     if matches!(command, InputCommand::SecureAttention) {
@@ -2283,6 +2287,7 @@ pub fn windows_input_pipe_available() -> bool {
 
 #[cfg(target_os = "windows")]
 pub fn send_secure_attention_to_helper() -> Result<(), String> {
+    crate::fork_policy::require_privileged_features()?;
     windows_pipe_dispatcher().send(&InputCommand::SecureAttention)
 }
 

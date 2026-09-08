@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "mykvm",
+  "productName": "MyKVM Local",
   "version": "0.1.0",
-  "identifier": "com.xzhpl.mykvm",
+  "identifier": "local.mykvm.gaming",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "MyKVM",
+        "title": "MyKVM Local",
         "width": 1480,
         "height": 960,
         "minWidth": 1200,
@@ -30,7 +30,7 @@
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -42,21 +42,8 @@
     "macOS": {
       "minimumSystemVersion": "12.0"
     },
-    "windows": {
-      "nsis": {
-        "installerHooks": "nsis-hooks.nsh"
-      }
-    }
+    "windows": {}
   },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY4NTQyMTlDMkRCREIxQ0EKUldUS3NiMHRuQ0ZVK0pQK3pnV3ZkcnJxUjMzclVoQUh6Vk5lVlNyRzVvRFdWcVF6OWlOUmpEMFIK",
-      "endpoints": [
-        "https://github.com/XxMinor/mykvm/releases/latest/download/latest.json"
-      ],
-      "windows": {
-        "installMode": "passive"
-      }
-    }
-  }
+  "plugins": {},
+  "mainBinaryName": "mykvm-local"
 }

@@ -1,5 +1,5 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
-import { APP_VERSION, RELEASES_URL, REPOSITORY_URL } from './constants'
+import { APP_VERSION, REPOSITORY_URL } from './constants'
 import { defaultLayout } from './defaultLayout'
 import type {
   AppStateSnapshot,
@@ -357,12 +357,7 @@ export async function openRepositoryUrl(): Promise<void> {
 }
 
 export async function openUpdateReleasePage(): Promise<void> {
-  if (!isTauri()) {
-    window.open(RELEASES_URL, '_blank', 'noopener,noreferrer')
-    return
-  }
-
-  await invoke('open_releases_url')
+  throw new Error('请使用已核验的 MyKVM Local 本地构建。')
 }
 
 export async function isPortableMode(): Promise<boolean> {
@@ -374,26 +369,7 @@ export async function isPortableMode(): Promise<boolean> {
 }
 
 export async function checkForAppUpdate(): Promise<AppUpdateCheckResult> {
-  if (!isTauri()) {
-    return { available: false }
-  }
-
-  const { check } = await import('@tauri-apps/plugin-updater')
-  const update = await check()
-
-  if (!update) {
-    return { available: false }
-  }
-
-  return {
-    available: true,
-    update: {
-      version: update.version,
-      currentVersion: update.currentVersion,
-      date: update.date,
-      body: update.body,
-    },
-  }
+  throw new Error('此本地预览版已禁用自动更新。')
 }
 
 export async function setAppUpgrading(enabled: boolean): Promise<void> {
@@ -402,26 +378,5 @@ export async function setAppUpgrading(enabled: boolean): Promise<void> {
 }
 
 export async function installAppUpdate(): Promise<void> {
-  if (!isTauri()) {
-    return
-  }
-
-  const [{ check }, { relaunch }] = await Promise.all([
-    import('@tauri-apps/plugin-updater'),
-    import('@tauri-apps/plugin-process'),
-  ])
-  const update = await check()
-
-  if (!update) {
-    return
-  }
-
-  await setAppUpgrading(true).catch(() => {})
-  try {
-    await update.downloadAndInstall()
-  } catch (error) {
-    await setAppUpgrading(false).catch(() => {})
-    throw error
-  }
-  await relaunch()
+  throw new Error('此本地预览版不允许安装上游更新。')
 }

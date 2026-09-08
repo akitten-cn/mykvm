@@ -47,7 +47,7 @@ import {
   writeClipboardText,
 } from "./desktopApi";
 import type { AppUpdateInfo } from "./desktopApi";
-import { APP_VERSION, REPOSITORY_URL } from "./constants";
+import { APP_VERSION, REPOSITORY_URL, UPDATES_ENABLED, PRIVILEGED_FEATURES_ENABLED } from "./constants";
 import { TEXT } from "./i18n";
 import type { AppText } from "./i18n";
 import {
@@ -116,7 +116,7 @@ type WorkspaceTab = (typeof WORKSPACE_TABS)[number]["id"];
 
 const CLIENT_TABS: WorkspaceTab[] = ["settings"];
 const PERFORMANCE_SAMPLE_LIMIT = 32;
-const UPDATE_DISMISSED_VERSION_KEY = "mykvm:update:dismissedVersion";
+const UPDATE_DISMISSED_VERSION_KEY = "mykvm-local:update:dismissedVersion";
 type UpdateStatus =
   | "idle"
   | "checking"
@@ -653,7 +653,7 @@ function App() {
       ? ui.settings.inputServiceInstalledStatus
       : ui.settings.inputServiceNeedsInstall;
   const canManageInputService =
-    usesWindowsChrome &&
+    PRIVILEGED_FEATURES_ENABLED && usesWindowsChrome &&
     machineRole === "client" &&
     Boolean(runtime?.privilege.isElevated);
   const hasBlockingOverlay =
@@ -741,7 +741,7 @@ function App() {
   }, [resolvedTheme, themeMode]);
 
   useEffect(() => {
-    if (!hasLoadedSnapshot || !isTauri() || startupUpdateCheckStarted.current) {
+    if (!UPDATES_ENABLED || !hasLoadedSnapshot || !isTauri() || startupUpdateCheckStarted.current) {
       return;
     }
 
@@ -2790,10 +2790,10 @@ function App() {
                   ) : null}
                 </dl>
                 <p className="muted-copy">{runtime.privilege.detail}</p>
-                {runtime.privilege.canElevate ||
+                {(PRIVILEGED_FEATURES_ENABLED && runtime.privilege.canElevate) ||
                 canManageInputService ? (
                   <div className="inline-actions">
-                    {runtime.privilege.canElevate ? (
+                    {PRIVILEGED_FEATURES_ENABLED && runtime.privilege.canElevate ? (
                       <button
                         type="button"
                         className="primary-button compact-button"
@@ -2841,7 +2841,7 @@ function App() {
                 ) : null}
               </section>
 
-              <section className="surface-card settings-card update-card">
+              {UPDATES_ENABLED && <section className="surface-card settings-card update-card">
                 <div className="card-title-row">
                   <h2>{ui.settings.updates}</h2>
                   <span className={`update-status-badge ${updateStatus}`}>
@@ -2923,7 +2923,7 @@ function App() {
                     {ui.settings.openReleases}
                   </button>
                 </div>
-              </section>
+              </section>}
 
               <section className="surface-card performance-card">
                 <div className="card-title-row">

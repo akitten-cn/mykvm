@@ -23,6 +23,7 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod clipboard;
+mod fork_policy;
 mod input;
 mod performance;
 mod quic_transport;
@@ -42,8 +43,7 @@ const TRANSPORT_PORT_MAX: u16 = 65_535;
 // ports (e.g. 47833 and 47834) still reach each other.
 const DISCOVERY_PORT_SPAN: u16 = 8;
 const REPOSITORY_URL: &str = "https://github.com/XxMinor/mykvm";
-const RELEASES_URL: &str = "https://github.com/XxMinor/mykvm/releases/latest";
-const DISCOVERY_PROTOCOL: &str = "mykvm.discovery.v1";
+const DISCOVERY_PROTOCOL: &str = "mykvm-local.discovery.v1";
 // UDP discovery is a heartbeat, not the transport itself. Keep peers through
 // short announce gaps so online clients do not flicker offline in the UI.
 const PEER_TTL_MS: u64 = 90_000;
@@ -66,19 +66,19 @@ const FILE_TRANSFER_PROTOCOL: &str = "mykvm.file-transfer.v1";
 const FILE_TRANSFER_CHUNK_BYTES: usize = 256 * 1024;
 const FILE_TRANSFER_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const LOG_MAX_FILE_SIZE_BYTES: u128 = 1024 * 1024;
-const AUTOSTART_ARG: &str = "--mykvm-autostart";
-const QUIT_EXISTING_ARG: &str = "--mykvm-quit-existing";
+const AUTOSTART_ARG: &str = "--mykvm-local-autostart";
+const QUIT_EXISTING_ARG: &str = "--mykvm-local-quit-existing";
 const INSTALL_INPUT_SERVICE_ARG: &str = "--install-input-service";
 const UNINSTALL_INPUT_SERVICE_ARG: &str = "--uninstall-input-service";
 const HELPER_PATH_ARG: &str = "--helper-path";
 const RUNTIME_STATE_EVENT: &str = "runtime-state-changed";
 
 #[cfg(target_os = "windows")]
-const SINGLE_INSTANCE_MUTEX_NAME: &str = "Local\\MyKVM_SingleInstance";
+const SINGLE_INSTANCE_MUTEX_NAME: &str = "Local\\MyKVMLocal_SingleInstance";
 #[cfg(target_os = "windows")]
-const ACTIVATE_INSTANCE_EVENT_NAME: &str = "Local\\MyKVM_ActivateWindow";
+const ACTIVATE_INSTANCE_EVENT_NAME: &str = "Local\\MyKVMLocal_ActivateWindow";
 #[cfg(target_os = "windows")]
-const QUIT_INSTANCE_EVENT_NAME: &str = "Local\\MyKVM_QuitExisting";
+const QUIT_INSTANCE_EVENT_NAME: &str = "Local\\MyKVMLocal_QuitExisting";
 
 static HOSTNAME_CACHE: OnceLock<Option<String>> = OnceLock::new();
 
@@ -1946,6 +1946,7 @@ fn allows_single_runtime_toggle_key(key: &str) -> bool {
 
 #[tauri::command]
 fn restart_as_admin(app: AppHandle, state: tauri::State<'_, AppRuntime>) -> Result<(), String> {
+    crate::fork_policy::require_privileged_features()?;
     #[cfg(target_os = "windows")]
     {
         if is_windows_process_elevated().unwrap_or(false) {
@@ -1987,6 +1988,7 @@ fn read_input_service_status(state: tauri::State<'_, AppRuntime>) -> InputServic
 fn install_input_service(
     state: tauri::State<'_, AppRuntime>,
 ) -> Result<InputServiceStatus, String> {
+    crate::fork_policy::require_privileged_features()?;
     #[cfg(target_os = "windows")]
     {
         let helper_path = resolve_input_helper_path()?;
@@ -2020,6 +2022,7 @@ fn install_input_service(
 fn uninstall_input_service(
     state: tauri::State<'_, AppRuntime>,
 ) -> Result<InputServiceStatus, String> {
+    crate::fork_policy::require_privileged_features()?;
     #[cfg(target_os = "windows")]
     {
         let status = if is_windows_process_elevated().unwrap_or(false) {
@@ -2054,6 +2057,7 @@ fn send_secure_attention(
     device_id: String,
     state: tauri::State<'_, AppRuntime>,
 ) -> Result<(), String> {
+    crate::fork_policy::require_privileged_features()?;
     let layout = state.layout_snapshot();
     let Some(quic_transport) = state.quic_transport_handle() else {
         return Err("QUIC transport is not ready; start the runtime first.".into());
@@ -2397,7 +2401,7 @@ fn open_repository_url() -> Result<(), String> {
 
 #[tauri::command]
 fn open_releases_url() -> Result<(), String> {
-    open_external_url(RELEASES_URL)
+    Err("此本地预览版不使用上游更新，请使用已核验的本地构建。".into())
 }
 
 #[tauri::command]
@@ -2412,6 +2416,13 @@ fn is_portable_mode() -> Result<bool, String> {
 
 pub fn handle_process_control_args() -> bool {
     let args = env::args().collect::<Vec<_>>();
+    if !crate::fork_policy::PRIVILEGED_FEATURES_ENABLED
+        && args.iter().any(|arg| arg == INSTALL_INPUT_SERVICE_ARG || arg == UNINSTALL_INPUT_SERVICE_ARG)
+    {
+        eprintln!("MyKVM Local does not install or manage privileged input services.");
+        return true;
+    }
+
     if args.iter().any(|arg| arg == QUIT_EXISTING_ARG) {
         request_existing_instance_quit();
         return true;
@@ -2817,12 +2828,6 @@ pub fn run() {
         })
         .setup(|app| {
             let silent_launch = launched_from_autostart();
-            if let Err(error) = app
-                .handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())
-            {
-                eprintln!("failed to initialize updater plugin: {error}");
-            }
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
                     .level(log::LevelFilter::Info)
@@ -2968,7 +2973,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .try_state::<AppRuntime>()
         .map(|state| state.runtime_status().started)
         .unwrap_or(false);
-    let show_item = MenuItem::with_id(app, "show", "Show mykvm", true, None::<&str>)?;
+    let show_item = MenuItem::with_id(app, "show", "打开 MyKVM Local", true, None::<&str>)?;
     let runtime_toggle_item = MenuItem::with_id(
         app,
         "runtime-toggle",
@@ -3079,7 +3084,7 @@ fn ensure_main_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
     }
 
     let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-        .title("MyKVM")
+        .title("MyKVM Local")
         .inner_size(1480.0, 960.0)
         .min_inner_size(1200.0, 760.0)
         .resizable(true)

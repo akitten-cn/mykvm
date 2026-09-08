@@ -127,17 +127,20 @@
       "review_focus": [
         "只改显示名不算身份隔离；保持原许可证；不能一刀切删掉 workspace 造成构建失败"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
-        "lol_runtime": "optional_not_run"
+        "lol_runtime": "optional_not_run",
+        "notes": "Frontend build and Mac lib tests passed; no packaged app or Windows compilation."
       },
-      "evidence": [],
+      "evidence": [
+        "../T02-isolation.md"
+      ],
       "blocked_reason": null
     },
     {
