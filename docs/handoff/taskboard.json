@@ -230,7 +230,10 @@
         "notes": "16 pure coordinator tests only; production integration T04.b not implemented."
       },
       "evidence": [
-        "../T04a-routing.md"
+        "../T04a-routing.md",
+        "../T04b1-session-adapter.md",
+        "../T04b2-app-runtime.md",
+        "../T04b3a-controller-handshake.md"
       ],
       "blocked_reason": null,
       "subtasks": [
@@ -287,8 +290,26 @@
         {
           "id": "T04.b3",
           "title": "控制端 Router、热键与捕获接线",
-          "implementation": "todo",
-          "review": "pending"
+          "implementation": "in_progress",
+          "review": "pending",
+          "subtasks": [
+            {
+              "id": "T04.b3.a",
+              "title": "控制端 V2 握手与健康纯逻辑",
+              "implementation": "done",
+              "review": "approved",
+              "verification": {
+                "automated": "pass",
+                "scope": "Fresh session generation, exact Ready/CommitAck, scoped Ping/Pong progress and End tests."
+              }
+            },
+            {
+              "id": "T04.b3.b",
+              "title": "Router 到 QUIC control/input 与 Windows 捕获接线",
+              "implementation": "todo",
+              "review": "pending"
+            }
+          ]
         }
       ]
     }

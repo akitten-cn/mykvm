@@ -74,3 +74,7 @@
 接收会话使用 3000 ms 活动租约，成功 Commit、关键输入和有效 Ping 刷新时间。FakeClock 测试证明截止前不清理、到期时关闭 handshake/input gate 并提交账本中的真实 up；Ping 可延后截止。释放提交失败会保留账本并写入可查询 fault，AppRuntime 将 fault 显示为 inject error。
 
 QUIC input stream 无论正常 EOF、解码失败还是 handler 拒绝都会调用认证的 close handler；真实回环测试确认 handle 丢弃后回调携带原认证 peer。ReceiverSessionRuntime 随即结束匹配会话并释放，避免 control Ping 在坏 input stream 后无限续租。A18/A21 标记 pass。165 项 Rust 库测试通过后，`V2_NATIVE_RECEIVER_ENABLED` 开为 true；旧 LAN 路径仍为 false。
+
+## T04.b3.a controller handshake 增量
+
+控制端握手纯逻辑生成 Hello/Prepare，拒绝错误 request、未就绪 Ready 和错误 CommitAck，并以控制端 boot、接收端 boot 和随机 nonce 构造新 SessionId。只有 Active 会话可发 Ping/End；Pong 必须匹配当前 session、已发送 ping 序列和单调远端进度。2 项定向测试通过。此阶段尚未接 Router、QUIC handle 或 Windows 捕获，不把纯逻辑测试计为实际切换可用。

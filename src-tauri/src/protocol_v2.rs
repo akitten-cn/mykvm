@@ -484,6 +484,171 @@ pub struct ReceiverHandshake {
     state: ReceiverState,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ControllerState {
+    Idle,
+    AwaitReady { request_id: u64 },
+    AwaitCommitAck { session_id: SessionId },
+    Active { session_id: SessionId },
+    Ended,
+}
+
+pub struct ControllerHandshake {
+    local_boot: BootId,
+    local_peer_id: String,
+    state: ControllerState,
+    ping_sequence: u64,
+    last_pong_sequence: u64,
+    highest_remote_applied: u64,
+}
+
+impl ControllerHandshake {
+    pub fn new(local_boot: BootId, local_peer_id: String) -> Result<Self, ProtocolError> {
+        if local_boot.0 == [0; 16] {
+            return Err(ProtocolError::InvalidField("boot_id"));
+        }
+        validate_text(&local_peer_id, MAX_PEER_ID_BYTES, "peer_id")?;
+        Ok(Self {
+            local_boot,
+            local_peer_id,
+            state: ControllerState::Idle,
+            ping_sequence: 0,
+            last_pong_sequence: 0,
+            highest_remote_applied: 0,
+        })
+    }
+
+    pub fn begin(
+        &mut self,
+        request_id: u64,
+        target_display: String,
+    ) -> Result<Vec<ControlFrame>, ProtocolError> {
+        if !matches!(self.state, ControllerState::Idle | ControllerState::Ended) {
+            return Err(ProtocolError::InvalidTransition);
+        }
+        let prepare = ControlFrame::Prepare {
+            request_id,
+            target_display,
+        };
+        validate_frame(&prepare)?;
+        self.state = ControllerState::AwaitReady { request_id };
+        Ok(vec![
+            ControlFrame::Hello {
+                boot_id: self.local_boot,
+                peer_id: self.local_peer_id.clone(),
+                role: DeviceRole::Controller,
+                capabilities: REQUIRED_CAPABILITIES
+                    .iter()
+                    .map(|value| (*value).to_string())
+                    .collect(),
+            },
+            prepare,
+        ])
+    }
+
+    pub fn handle(&mut self, frame: &ControlFrame) -> Result<Option<ControlFrame>, ProtocolError> {
+        validate_frame(frame)?;
+        match (self.state.clone(), frame) {
+            (
+                ControllerState::AwaitReady { request_id },
+                ControlFrame::Ready {
+                    request_id: received,
+                    receiver_boot,
+                    input_ready: true,
+                },
+            ) if request_id == *received && receiver_boot.0 != [0; 16] => {
+                let session_id = SessionId::generate(self.local_boot, *receiver_boot)?;
+                self.state = ControllerState::AwaitCommitAck { session_id };
+                Ok(Some(ControlFrame::Commit {
+                    request_id,
+                    session_id,
+                }))
+            }
+            (
+                ControllerState::AwaitCommitAck { session_id },
+                ControlFrame::CommitAck {
+                    session_id: received,
+                },
+            ) if session_id == *received => {
+                self.state = ControllerState::Active { session_id };
+                self.ping_sequence = 0;
+                self.last_pong_sequence = 0;
+                self.highest_remote_applied = 0;
+                Ok(None)
+            }
+            (
+                ControllerState::Active { session_id },
+                ControlFrame::Pong {
+                    session_id: received,
+                    sequence,
+                    highest_applied_sequence,
+                },
+            ) if session_id == *received
+                && *sequence > self.last_pong_sequence
+                && *sequence <= self.ping_sequence
+                && *highest_applied_sequence >= self.highest_remote_applied =>
+            {
+                self.last_pong_sequence = *sequence;
+                self.highest_remote_applied = *highest_applied_sequence;
+                Ok(None)
+            }
+            (_, ControlFrame::Reject { .. }) => {
+                self.state = ControllerState::Ended;
+                Err(ProtocolError::InvalidTransition)
+            }
+            (ControllerState::AwaitReady { .. }, ControlFrame::Ready { .. }) => {
+                Err(ProtocolError::WrongSession)
+            }
+            (ControllerState::AwaitCommitAck { .. }, ControlFrame::CommitAck { .. }) => {
+                Err(ProtocolError::WrongSession)
+            }
+            (ControllerState::Active { .. }, ControlFrame::Pong { .. }) => {
+                Err(ProtocolError::WrongSession)
+            }
+            _ => Err(ProtocolError::InvalidTransition),
+        }
+    }
+
+    pub fn active_session(&self) -> Option<SessionId> {
+        match self.state {
+            ControllerState::Active { session_id } => Some(session_id),
+            _ => None,
+        }
+    }
+
+    pub fn ping(&mut self) -> Result<ControlFrame, ProtocolError> {
+        let session_id = self
+            .active_session()
+            .ok_or(ProtocolError::InvalidTransition)?;
+        self.ping_sequence = self
+            .ping_sequence
+            .checked_add(1)
+            .ok_or(ProtocolError::InvalidField("sequence"))?;
+        Ok(ControlFrame::Ping {
+            session_id,
+            sequence: self.ping_sequence,
+        })
+    }
+
+    pub fn highest_remote_applied(&self) -> u64 {
+        self.highest_remote_applied
+    }
+
+    pub fn abort(&mut self) {
+        self.state = ControllerState::Ended;
+    }
+
+    pub fn end(&mut self, reason: String) -> Result<ControlFrame, ProtocolError> {
+        let session_id = self
+            .active_session()
+            .ok_or(ProtocolError::InvalidTransition)?;
+        let frame = ControlFrame::EndSession { session_id, reason };
+        validate_frame(&frame)?;
+        self.state = ControllerState::Ended;
+        Ok(frame)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InputSessionGate {
     local_boot: BootId,
@@ -1010,5 +1175,107 @@ mod tests {
         };
         assert_eq!(gate.accept(&late), Err(ProtocolError::WrongSession));
         assert_eq!(gate.activate(session), Err(ProtocolError::WrongSession));
+    }
+
+    #[test]
+    fn controller_handshake_generates_fresh_session_and_requires_exact_ack() {
+        let mut controller = ControllerHandshake::new(boot(1), "controller-a".into()).unwrap();
+        let begin = controller.begin(7, "mac-main".into()).unwrap();
+        assert!(matches!(begin[0], ControlFrame::Hello { .. }));
+        assert_eq!(
+            begin[1],
+            ControlFrame::Prepare {
+                request_id: 7,
+                target_display: "mac-main".into(),
+            }
+        );
+        let commit = controller
+            .handle(&ControlFrame::Ready {
+                request_id: 7,
+                receiver_boot: boot(2),
+                input_ready: true,
+            })
+            .unwrap()
+            .unwrap();
+        let ControlFrame::Commit { session_id, .. } = commit else {
+            panic!("commit")
+        };
+        assert_eq!(session_id.controller_boot, boot(1));
+        assert_eq!(session_id.receiver_boot, boot(2));
+        assert_ne!(session_id.nonce, [0; 16]);
+        let wrong = SessionId {
+            nonce: [9; 16],
+            ..session_id
+        };
+        assert_eq!(
+            controller.handle(&ControlFrame::CommitAck { session_id: wrong }),
+            Err(ProtocolError::WrongSession)
+        );
+        controller
+            .handle(&ControlFrame::CommitAck { session_id })
+            .unwrap();
+        assert_eq!(controller.active_session(), Some(session_id));
+    }
+
+    #[test]
+    fn controller_rejects_unready_or_stale_ready_and_scopes_ping_end() {
+        let mut controller = ControllerHandshake::new(boot(1), "controller-a".into()).unwrap();
+        controller.begin(7, "mac-main".into()).unwrap();
+        assert_eq!(
+            controller.handle(&ControlFrame::Ready {
+                request_id: 8,
+                receiver_boot: boot(2),
+                input_ready: true,
+            }),
+            Err(ProtocolError::WrongSession)
+        );
+        assert_eq!(
+            controller.handle(&ControlFrame::Ready {
+                request_id: 7,
+                receiver_boot: boot(2),
+                input_ready: false,
+            }),
+            Err(ProtocolError::WrongSession)
+        );
+        let commit = controller
+            .handle(&ControlFrame::Ready {
+                request_id: 7,
+                receiver_boot: boot(2),
+                input_ready: true,
+            })
+            .unwrap()
+            .unwrap();
+        let ControlFrame::Commit { session_id, .. } = commit else {
+            panic!("commit")
+        };
+        assert!(controller.ping().is_err());
+        controller
+            .handle(&ControlFrame::CommitAck { session_id })
+            .unwrap();
+        assert!(matches!(
+            controller.ping().unwrap(),
+            ControlFrame::Ping { sequence: 1, .. }
+        ));
+        controller
+            .handle(&ControlFrame::Pong {
+                session_id,
+                sequence: 1,
+                highest_applied_sequence: 12,
+            })
+            .unwrap();
+        assert_eq!(controller.highest_remote_applied(), 12);
+        assert!(controller
+            .handle(&ControlFrame::Pong {
+                session_id,
+                sequence: 1,
+                highest_applied_sequence: 13,
+            })
+            .is_err());
+        assert!(matches!(
+            controller.end("return-windows".into()).unwrap(),
+            ControlFrame::EndSession { .. }
+        ));
+        assert!(controller.ping().is_err());
+        assert!(controller.end("again".into()).is_err());
     }
 }
