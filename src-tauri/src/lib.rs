@@ -28,6 +28,7 @@ mod fork_policy;
 mod input;
 mod performance;
 mod quic_transport;
+pub mod routing;
 pub mod shared_input;
 #[cfg(target_os = "windows")]
 pub mod windows_input;

@@ -218,17 +218,20 @@
       "review_focus": [
         "不要用 toggle 代替指定目标；不得让返回排在图片任务后"
       ],
-      "implementation": "todo",
+      "implementation": "in_progress",
       "review": "pending",
       "verification": {
-        "automated": "not_run",
+        "automated": "pass",
         "mac_build": "not_run",
         "mac_runtime": "not_run",
         "windows_build": "not_run",
         "windows_runtime": "optional_not_run",
-        "lol_runtime": "optional_not_run"
+        "lol_runtime": "optional_not_run",
+        "notes": "16 pure coordinator tests only; production integration T04.b not implemented."
       },
-      "evidence": [],
+      "evidence": [
+        "../T04a-routing.md"
+      ],
       "blocked_reason": null,
       "subtasks": [
         {
@@ -237,8 +240,8 @@
           "depends_on": [
             "T03"
           ],
-          "implementation": "todo",
-          "review": "pending"
+          "implementation": "done",
+          "review": "approved"
         },
         {
           "id": "T04.b",
