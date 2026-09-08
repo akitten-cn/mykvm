@@ -1,0 +1,148 @@
+{
+  "review_date": "2026-09-07",
+  "repository": "XxMinor/mykvm",
+  "reviewed_commit": "bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b",
+  "local_checkout_compiled": false,
+  "fork_created_by_this_package": false,
+  "source_scope": "Selected files read through GitHub at the named commit; input.rs/lib.rs deep paths require T01 re-audit.",
+  "sources": [
+    {
+      "id": "S01",
+      "title": "MyKVM 仓库/指定提交",
+      "url": "https://github.com/XxMinor/mykvm/commit/bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b",
+      "note": "本次审查快照存在；不是本地编译证据，也不是最新稳定版判断。"
+    },
+    {
+      "id": "S02",
+      "title": "QUIC 传输",
+      "url": "https://github.com/XxMinor/mykvm/blob/bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b/src-tauri/src/quic_transport.rs",
+      "note": "已分段读取命令循环、发送任务、流读取、证书与连接配置；blob d5cb7b74288a41b82ed270ddded3e7c39b64117d。"
+    },
+    {
+      "id": "S03",
+      "title": "剪贴板",
+      "url": "https://github.com/XxMinor/mykvm/blob/bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b/src-tauri/src/clipboard.rs",
+      "note": "已读取文本/图片、上限、空过滤和平台后端；blob 6aa2663c862e1a7879f8b0ddd269a9dcd705917d。"
+    },
+    {
+      "id": "S04",
+      "title": "输入事件与本机命令",
+      "url": "https://github.com/XxMinor/mykvm/blob/bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b/src-tauri/src/shared_input.rs",
+      "note": "已读取两类枚举和 helper 名称；blob 4933933670d6607d36196e80c0e777d42c39e9a0。"
+    },
+    {
+      "id": "S05",
+      "title": "桌面启动入口",
+      "url": "https://github.com/XxMinor/mykvm/blob/bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b/src-tauri/src/main.rs",
+      "note": "已读取无控制台属性、单实例入口；blob aac70d340eb82a4892757b9388e290bb2aea4a4e。"
+    },
+    {
+      "id": "S06",
+      "title": "Tauri 配置",
+      "url": "https://github.com/XxMinor/mykvm/blob/bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b/src-tauri/tauri.conf.json",
+      "note": "已读取隐藏窗口、updater、应用标识与 bundle 配置；blob 562ad9c30b446e37fde28c9440e3da8ac00b3905。"
+    },
+    {
+      "id": "S07",
+      "title": "Rust 依赖与 workspace",
+      "url": "https://github.com/XxMinor/mykvm/blob/bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b/src-tauri/Cargo.toml",
+      "note": "声明 Rust 1.89 最低版本、Windows helper workspace 等；blob 89070139d6d7f18e5a493bc67aa2ddbdc3aa4d03。"
+    },
+    {
+      "id": "S08",
+      "title": "Mac 本地签名脚本",
+      "url": "https://github.com/XxMinor/mykvm/blob/bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b/scripts/sign-mac-app.sh",
+      "note": "脚本包含钥匙串/信任修改和上游标识；blob f164649845cc465cf163938acac625f02ae17d44。"
+    },
+    {
+      "id": "S09",
+      "title": "前端依赖与构建命令",
+      "url": "https://github.com/XxMinor/mykvm/blob/bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b/package.json",
+      "note": "已读取 npm scripts 与 React/Tauri 等声明；blob ed1020b98646e6fece5a413bde35356820302d50。"
+    },
+    {
+      "id": "S10",
+      "title": "Microsoft RegisterHotKey",
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey",
+      "note": "系统热键、注册冲突与 F12 保留说明。"
+    },
+    {
+      "id": "S11",
+      "title": "Microsoft SetForegroundWindow",
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow",
+      "note": "前台切换 API 和限制；不是任意抢焦点许可。"
+    },
+    {
+      "id": "S12",
+      "title": "Microsoft Raw Input 概览",
+      "url": "https://learn.microsoft.com/en-us/windows/win32/inputdev/about-raw-input",
+      "note": "Raw Input 与传统消息模型的区别。"
+    },
+    {
+      "id": "S13",
+      "title": "Microsoft LowLevelMouseProc",
+      "url": "https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelmouseproc",
+      "note": "低级鼠标钩子回调与超时限制。"
+    },
+    {
+      "id": "S14",
+      "title": "Microsoft AddClipboardFormatListener",
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-addclipboardformatlistener",
+      "note": "原生剪贴板变化通知。"
+    },
+    {
+      "id": "S15",
+      "title": "Apple NSPasteboard.changeCount",
+      "url": "https://developer.apple.com/documentation/appkit/nspasteboard/changecount",
+      "note": "Mac 剪贴板变化计数；不等于跨主机可比较序号。"
+    },
+    {
+      "id": "S16",
+      "title": "Tauri 配置 create 属性",
+      "url": "https://v2.tauri.app/reference/config/",
+      "note": "支持窗口启动时不创建、之后按需构造。"
+    },
+    {
+      "id": "S17",
+      "title": "Tauri 开发前置依赖",
+      "url": "https://v2.tauri.app/start/prerequisites/",
+      "note": "不同操作系统的构建依赖。"
+    },
+    {
+      "id": "S18",
+      "title": "OpenAI Codex AGENTS.md",
+      "url": "https://developers.openai.com/codex/agent-configuration/agents-md",
+      "note": "项目级指令的读取方式；本项目不修改用户全局文件。"
+    },
+    {
+      "id": "S19",
+      "title": "OpenAI Codex Skills",
+      "url": "https://developers.openai.com/codex/build-skills",
+      "note": "按实际可用 skill 读取使用，不虚构安装或执行状态。"
+    },
+    {
+      "id": "S20",
+      "title": "GitHub CLI fork",
+      "url": "https://cli.github.com/manual/gh_repo_fork",
+      "note": "fork、clone 与 remote 行为。"
+    },
+    {
+      "id": "S21",
+      "title": "Tauri Windows 安装器",
+      "url": "https://v2.tauri.app/distribute/windows-installer/",
+      "note": "Windows 构建与打包能力；本包优先原生 Windows 环境。"
+    },
+    {
+      "id": "S22",
+      "title": "指定提交的树",
+      "url": "https://github.com/XxMinor/mykvm/tree/bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b",
+      "note": "目录定位参考；最终以 Codex 本地完整树为准。"
+    },
+    {
+      "id": "S23",
+      "title": "MyKVM LICENSE",
+      "url": "https://github.com/XxMinor/mykvm/blob/bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b/LICENSE",
+      "note": "已读取 MIT 授权及版权保留要求；blob 08a7a713a8a1d9eaab7fcde2ca8f6bca955c62ee。"
+    }
+  ]
+}

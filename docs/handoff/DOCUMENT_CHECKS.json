@@ -1,0 +1,23 @@
+{
+  "scope": "Documentation structure only, not MyKVM build or runtime verification.",
+  "checked_on": "2026-09-07",
+  "checks": {
+    "json_parse": "pass",
+    "unique_task_test_ids": "pass",
+    "dependency_dag": "pass",
+    "task_test_references": "pass",
+    "markdown_fences": "pass",
+    "local_document_links": "pass",
+    "source_reference_ids": "pass",
+    "no_lol_hard_gate_in_structured_plan": "pass",
+    "all_implementation_tasks_initial_todo": "pass"
+  },
+  "counts": {
+    "main_documents": 8,
+    "tasks": 26,
+    "tests": 61,
+    "automated_tests": 44,
+    "optional_lol_tests": 4,
+    "templates": 7
+  }
+}

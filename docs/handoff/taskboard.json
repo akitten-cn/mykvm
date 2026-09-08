@@ -1,0 +1,1224 @@
+{
+  "schema_version": 1,
+  "document_version": "2.0",
+  "updated_at": "2026-09-08",
+  "development_host": "macOS / Apple Silicon M4",
+  "policy": {
+    "lol_is_hard_gate": false,
+    "missing_windows_environment_blocks_other_work": false,
+    "dependency_semantics": "implementation and main-thread review; platform evidence tracked separately",
+    "default_execution": "one atomic task, actual diff/tests reviewed before next; respect existing approval rules"
+  },
+  "tasks": [
+    {
+      "id": "T00",
+      "phase": "P0",
+      "title": "确认工作区、授权边界和源码来源",
+      "depends_on": [],
+      "paths": [
+        "工作区",
+        "项目 AGENTS.md",
+        "docs/handoff 或 handoff"
+      ],
+      "actions": [
+        "读取全部交接文档、项目 AGENTS 和实际可用 skill；保留用户未提交改动。",
+        "核验 Git/Node/Rust/Xcode/架构与 GitHub 认证；未知项汇总一次，不编造型号和回报率。",
+        "授权账户明确时创建/复用 fork；无认证先本地 clone 上游继续，不上传凭据/真实环境日志。"
+      ],
+      "test_ids": [],
+      "deliverables": [
+        "环境记录",
+        "工作树/remote 记录",
+        "唯一任务执行入口"
+      ],
+      "review_focus": [
+        "不能重置用户分支；不得修改全局 Codex 配置；文档优先确认 CR-001"
+      ],
+      "implementation": "done",
+      "review": "approved",
+      "verification": {
+        "automated": "pass",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "pending_environment",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [
+        "../ENVIRONMENT.md"
+      ],
+      "blocked_reason": null
+    },
+    {
+      "id": "T01",
+      "phase": "P0",
+      "title": "固定基线与复核源码映射",
+      "depends_on": [
+        "T00"
+      ],
+      "paths": [
+        "package.json",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/*",
+        "scripts/*",
+        ".github/workflows/*"
+      ],
+      "actions": [
+        "核验审查 SHA 的可达性并记录实际开发完整 SHA；已有仓库不强制回退。",
+        "在同一 SHA 上复核函数、认证、队列、ReleaseAll、窗口、installer helper 和 updater。",
+        "先进行 Mac 原版 lint/build/lib checks，保存已存在失败；Windows 基线能跑就跑，不能跑不挡住后续。"
+      ],
+      "test_ids": [
+        "M01"
+      ],
+      "deliverables": [
+        "SOURCE_AUDIT",
+        "基线命令/退出码",
+        "旧建议→当前代码修正表"
+      ],
+      "review_focus": [
+        "不重复实现异步 stream 和 release 无控制台；不得只读 README 当源码审查"
+      ],
+      "implementation": "done",
+      "review": "approved",
+      "verification": {
+        "automated": "pass",
+        "mac_build": "pass",
+        "mac_runtime": "not_run",
+        "windows_build": "pending_environment",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run",
+        "notes": "Mac cargo check/web build only; app package not generated; baseline fmt/clippy fail recorded in SOURCE_AUDIT."
+      },
+      "evidence": [
+        "../SOURCE_AUDIT.md"
+      ],
+      "blocked_reason": null
+    },
+    {
+      "id": "T02",
+      "phase": "P0",
+      "title": "隔离 fork 身份及构建副作用",
+      "depends_on": [
+        "T01"
+      ],
+      "paths": [
+        "src-tauri/tauri*.json",
+        "src-tauri/src/main.rs",
+        "src-tauri/src/lib.rs",
+        "scripts/*",
+        "安装 hooks",
+        "前端 updater 调用"
+      ],
+      "actions": [
+        "确定测试版应用ID、配置/锁/日志/自启名。",
+        "禁用上游自动更新和不需要的特权 helper 自动安装路径。",
+        "审查 Mac sign/install；本地构建不得默认覆盖现有 app、改钥匙串或信任设置。"
+      ],
+      "test_ids": [
+        "A40",
+        "A42"
+      ],
+      "deliverables": [
+        "隔离后的配置",
+        "安装/签名副作用清单",
+        "回滚说明"
+      ],
+      "review_focus": [
+        "只改显示名不算身份隔离；保持原许可证；不能一刀切删掉 workspace 造成构建失败"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T03",
+      "phase": "P0",
+      "title": "建立 Mac 可运行的核心测试接口",
+      "depends_on": [
+        "T01"
+      ],
+      "paths": [
+        "拟新增 routing/session/platform ports",
+        "src-tauri/src/lib.rs 测试接入",
+        "测试 fixtures"
+      ],
+      "actions": [
+        "创建 FakeClock/Capture/Injector/Transport；默认不读系统剪贴板、不发真实键盘事件。",
+        "将必要纯逻辑从 OS 回调抽出；不强制整个项目拆多 crate。",
+        "明确平台 cfg 与测试模式，不为让 Mac 编译通过而 stub 掉 Windows 功能。"
+      ],
+      "test_ids": [
+        "A28",
+        "M05"
+      ],
+      "deliverables": [
+        "测试端口与固定 fixtures",
+        "不影响真实桌面的测试入口"
+      ],
+      "review_focus": [
+        "测试不能抢 Codex 输入焦点；生产代码不得默认接受 test token"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T04",
+      "phase": "P1",
+      "title": "实现路由状态机和本地应急通道",
+      "depends_on": [
+        "T03"
+      ],
+      "paths": [
+        "拟新增 routing.rs",
+        "input.rs",
+        "lib.rs 路由入口"
+      ],
+      "actions": [
+        "实现 GoRemote/GoLocal/SetGameMode 与五种路由态。",
+        "新增本地原子覆盖通道，取消请求后拒绝晚 ACK。",
+        "普通切换等键松开；应急返回不等远程、不被主 actor 阻塞。"
+      ],
+      "test_ids": [
+        "A01",
+        "A02",
+        "A03",
+        "A04",
+        "A07"
+      ],
+      "deliverables": [
+        "状态机代码",
+        "转移表对应单测"
+      ],
+      "review_focus": [
+        "不要用 toggle 代替指定目标；不得让返回排在图片任务后"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T05",
+      "phase": "P1",
+      "title": "复核并绑定已配对连接身份",
+      "depends_on": [
+        "T02",
+        "T03"
+      ],
+      "paths": [
+        "lib.rs 配对/授权路径",
+        "quic_transport.rs 连接上下文",
+        "拟新增 authenticated peer 类型"
+      ],
+      "actions": [
+        "证明双向授权在哪里完成；传输 with_no_client_auth 不冒充 mTLS。",
+        "仅从持久配对信任获得证书/凭据；授权上下文绑定具体连接和角色。",
+        "配对层不足时实现最小补充并写 ADR；真实LAN注入在验证前保持禁用，其他模拟任务可继续。"
+      ],
+      "test_ids": [
+        "A10",
+        "A11",
+        "A12",
+        "A43"
+      ],
+      "deliverables": [
+        "授权调用链",
+        "正反授权测试",
+        "必要的安全 ADR"
+      ],
+      "review_focus": [
+        "发现广播不得直接成为信任；不能只验 SocketAddr 或网络自报 peer_id"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T06",
+      "phase": "P1",
+      "title": "实现 V2 分帧、会话握手与版本协商",
+      "depends_on": [
+        "T05"
+      ],
+      "paths": [
+        "拟新增 protocol_v2.rs",
+        "shared_input.rs",
+        "quic_transport.rs"
+      ],
+      "actions": [
+        "实现 Prepare/Ready/Commit/ACK/End 及 boot/session 标识。",
+        "control/input 持久流采用有界逐帧解析，不等整个流 EOF。",
+        "限制长度/版本/角色；取消和超时不吞本机输入；不兼容明确拒绝。"
+      ],
+      "test_ids": [
+        "A13",
+        "A14",
+        "A15",
+        "A16",
+        "A17"
+      ],
+      "deliverables": [
+        "协议结构",
+        "帧语料/兼容拒绝测试",
+        "协议版本记录"
+      ],
+      "review_focus": [
+        "协议是拟新增；不继续把内部 ReleaseAll 当线上已存在的消息"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T07",
+      "phase": "P1",
+      "title": "实现接收账本、健康与真实释放",
+      "depends_on": [
+        "T04",
+        "T06"
+      ],
+      "paths": [
+        "拟新增 session.rs",
+        "pressed_state.rs",
+        "input.rs 接收/注入"
+      ],
+      "actions": [
+        "跟踪已提交的目标键/按钮、冻结映射和重复/引用语义。",
+        "正常结束、有效超时、权限变化走真实 release 路径；健康检测与图片隔离。",
+        "结束的 session 不复活；清理失败可见；如实描述进程强杀残余风险。"
+      ],
+      "test_ids": [
+        "A18",
+        "A19",
+        "A20",
+        "A21"
+      ],
+      "deliverables": [
+        "账本和租约逻辑",
+        "释放测试",
+        "崩溃边界说明"
+      ],
+      "review_focus": [
+        "仅清集合不算释放；OS调用返回不等于应用动作执行成功"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T08",
+      "phase": "P1",
+      "title": "改造有界调度和鼠标/按钮顺序",
+      "depends_on": [
+        "T06",
+        "T07"
+      ],
+      "paths": [
+        "quic_transport.rs",
+        "input.rs send_packet 接入",
+        "protocol_v2.rs"
+      ],
+      "actions": [
+        "保留已有异步 stream，将无界命令通道改为受预算限制的输入/control/bulk调度。",
+        "关键事件可靠有序；绝对位置 latest-wins，定义 required_reliable_seq 与 motion floor。",
+        "关键溢出返回本机；点击含位置快照；限制接收并发和解析内存。"
+      ],
+      "test_ids": [
+        "A22",
+        "A23",
+        "A24",
+        "A25",
+        "A26",
+        "A27",
+        "A29"
+      ],
+      "deliverables": [
+        "调度代码",
+        "压力/乱序测试",
+        "预算常量"
+      ],
+      "review_focus": [
+        "不能丢相对位移；QUIC流共享拥塞不等于零竞争；不能每移动 spawn task"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T09",
+      "phase": "P2",
+      "title": "实现 Windows 指定设备热键协调",
+      "depends_on": [
+        "T04",
+        "T06",
+        "T07"
+      ],
+      "paths": [
+        "input.rs Windows keyboard/hotkey",
+        "现有 global-shortcut 接口",
+        "game_mode.rs"
+      ],
+      "actions": [
+        "复用既有注册机制；新增三个幂等动作，不重复登记冲突热键。",
+        "系统消息与钩子去重；远程态在吞键前识别本地控制动作。",
+        "释放热键识别前已发出去的修饰键；注册冲突中文可见。"
+      ],
+      "test_ids": [
+        "A05",
+        "A06",
+        "A28",
+        "W01"
+      ],
+      "deliverables": [
+        "Windows 条件编译实现",
+        "键序列测试",
+        "待 Windows 运行清单"
+      ],
+      "review_focus": [
+        "在 Mac 写真实 Windows 代码；不能只用 FakeHotkey 实现交差"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T10",
+      "phase": "P2",
+      "title": "实现本地游戏快速路径",
+      "depends_on": [
+        "T09"
+      ],
+      "paths": [
+        "input.rs windows_mouse_proc/handle_windows_mouse_move",
+        "捕获生命周期",
+        "game_mode.rs"
+      ],
+      "actions": [
+        "手动游戏模式关闭边缘判断。",
+        "优先卸钩，或先实现最短放行并标明差异；不降物理鼠标全局回报率。",
+        "把慢路径移出 FFI；panic/队列失败回本地。"
+      ],
+      "test_ids": [
+        "A08",
+        "A28",
+        "W01"
+      ],
+      "deliverables": [
+        "游戏本地模式代码",
+        "重路径零调用断言",
+        "Windows 可选性能项"
+      ],
+      "review_focus": [
+        "不等待 LOL；不要把按键转发速率与本机鼠标回报率混为一谈"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T11",
+      "phase": "P2",
+      "title": "实现保守焦点交接与失败提示",
+      "depends_on": [
+        "T10",
+        "T07"
+      ],
+      "paths": [
+        "拟新增 Windows focus adapter",
+        "game_mode.rs",
+        "routing.rs"
+      ],
+      "actions": [
+        "一次用户触发只尝试一次合法焦点交接；使用轻量原生窗口而非视频界面。",
+        "失败取消激活并提示 Alt+Tab，返回本机优先。",
+        "加入 FocusPort 假实现测试；标注实际游戏行为未测，继续后续任务。"
+      ],
+      "test_ids": [
+        "A09",
+        "A03",
+        "W01",
+        "L01",
+        "L02",
+        "L03"
+      ],
+      "deliverables": [
+        "Windows 焦点代码",
+        "安全回退测试",
+        "可选 LOL 项"
+      ],
+      "review_focus": [
+        "L01-L03 不作为任务通过/下阶段的硬依赖；禁止游戏注入与强抢循环"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T12",
+      "phase": "P2",
+      "title": "完善 Mac 注入映射及开发键位",
+      "depends_on": [
+        "T07"
+      ],
+      "paths": [
+        "input.rs Mac inject_key/映射函数",
+        "拟新增 Mac adapter",
+        "设置模型"
+      ],
+      "actions": [
+        "默认保留 Ctrl/Command/Option；可选互换，按下时冻结映射。",
+        "补左右键、重复、标点、数字区和 Caps/IME 的明确配置语义。",
+        "receiver-only 不启动无用本地捕获；权限失败拒绝会话。"
+      ],
+      "test_ids": [
+        "A19",
+        "A20",
+        "A30",
+        "A31",
+        "M04",
+        "M06"
+      ],
+      "deliverables": [
+        "映射代码/测试表",
+        "权限状态",
+        "硬件特殊键限制说明"
+      ],
+      "review_focus": [
+        "Mac真实注入测试需用户授权；不自动往 Codex/终端发送任意命令"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T13",
+      "phase": "P3",
+      "title": "实现 Windows 原生剪贴板通知",
+      "depends_on": [
+        "T03",
+        "T05"
+      ],
+      "paths": [
+        "clipboard.rs Windows 后端",
+        "用户会话消息窗口"
+      ],
+      "actions": [
+        "使用事件通知并在用户会话读取；typed result 区分 busy/error/empty。",
+        "短暂有界重试，格式变化时不回退到陈旧文本。",
+        "注销监听与窗口清理对称，不默认 SYSTEM 读取。"
+      ],
+      "test_ids": [
+        "A33",
+        "A38",
+        "A40",
+        "W01"
+      ],
+      "deliverables": [
+        "Windows 原生后端",
+        "错误与格式测试"
+      ],
+      "review_focus": [
+        "Mac编译不覆盖此分支；必须保留明确 Windows CI 任务"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T14",
+      "phase": "P3",
+      "title": "实现 Mac 进程内剪贴板后端",
+      "depends_on": [
+        "T03",
+        "T05"
+      ],
+      "paths": [
+        "clipboard.rs read_system_text/write_system_text",
+        "Mac pasteboard adapter"
+      ],
+      "actions": [
+        "进程内 NSPasteboard/arboard；先比较 changeCount，变化再读取。",
+        "不在生产轮询中调用 pbpaste/pbcopy；空/失败不产生远端清空。",
+        "线程/生命周期按 AppKit/依赖实际约束实现，必要时通过指定线程派发。"
+      ],
+      "test_ids": [
+        "A32",
+        "A33",
+        "A37",
+        "M03"
+      ],
+      "deliverables": [
+        "Mac 原生后端",
+        "子进程零调用测试",
+        "可用本机测试记录"
+      ],
+      "review_focus": [
+        "不把 Mac 不存在的通用事件 API 当现成能力；读写测试恢复用户剪贴板"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T15",
+      "phase": "P3",
+      "title": "实现双向剪贴板操作与冲突规则",
+      "depends_on": [
+        "T13",
+        "T14",
+        "T08"
+      ],
+      "paths": [
+        "lib.rs run_clipboard_sync 接入",
+        "clipboard sync 模块",
+        "protocol_v2.rs bulk"
+      ],
+      "actions": [
+        "引入来源/操作ID/系统版本/摘要，区分回声与新复制。",
+        "并发复制确定性收敛，重连不自动覆盖旧内容。",
+        "文本阈值和手动重发可配置，超限可见；不截断代码。"
+      ],
+      "test_ids": [
+        "A32",
+        "A33",
+        "A34",
+        "A35",
+        "A36"
+      ],
+      "deliverables": [
+        "同步引擎",
+        "并发/回声语料",
+        "用户设置"
+      ],
+      "review_focus": [
+        "日志不得存原文；不能用固定1秒静默窗口吞掉用户复制"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T16",
+      "phase": "P3",
+      "title": "限制图片及 bulk 资源预算",
+      "depends_on": [
+        "T15"
+      ],
+      "paths": [
+        "clipboard.rs 图片边界",
+        "quic_transport.rs bulk调度",
+        "配置"
+      ],
+      "actions": [
+        "图片默认关闭；游戏模式暂停大图片。",
+        "分配前检查尺寸/整数/编码，限制发送和接收内存与并发。",
+        "原编码可先保留，但存在不安全无界解码时必须修复或禁用该路径。"
+      ],
+      "test_ids": [
+        "A14",
+        "A26",
+        "A27",
+        "A38"
+      ],
+      "deliverables": [
+        "图片预算/限制",
+        "恶意输入测试",
+        "取消与超限提示"
+      ],
+      "review_focus": [
+        "并发槽位不等于字节预算；不能用几张小图证明无OOM风险"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T17",
+      "phase": "P3",
+      "title": "实现低资源托盘运行和用户自启",
+      "depends_on": [
+        "T02",
+        "T04",
+        "T05"
+      ],
+      "paths": [
+        "lib.rs runtime/window/tray",
+        "tauri.conf.json",
+        "main.rs",
+        "自启配置"
+      ],
+      "actions": [
+        "主窗口按需创建并可销毁；后台由Rust拥有。",
+        "关闭设置不停止服务；重复启动不重复捕获；自启不先闪窗口。",
+        "Windows无CMD保留；Mac菜单栏；不安装SYSTEM服务，不自动禁止系统睡眠。"
+      ],
+      "test_ids": [
+        "A39",
+        "A40",
+        "A41",
+        "A42",
+        "M02",
+        "W02"
+      ],
+      "deliverables": [
+        "后台生命周期代码",
+        "自启/单实例测试",
+        "进程检查方法"
+      ],
+      "review_focus": [
+        "不可依赖 React 心跳保活；隐藏窗口不自动等于释放 WebView"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T18",
+      "phase": "P3",
+      "title": "接入中文设置、错误码与脱敏诊断",
+      "depends_on": [
+        "T09",
+        "T12",
+        "T15",
+        "T17"
+      ],
+      "paths": [
+        "src/App.tsx 及核验后的组件",
+        "i18n资源",
+        "lib.rs IPC",
+        "diagnostics.rs"
+      ],
+      "actions": [
+        "加入设备角色、热键、游戏模式、键位、剪贴板、后台配置。",
+        "托盘有紧急返回/暂停；错误码中文化。",
+        "指标低频推送，关设置停订阅；所有 IPC 参数再校验，日志脱敏。"
+      ],
+      "test_ids": [
+        "A43",
+        "A44",
+        "A39"
+      ],
+      "deliverables": [
+        "设置页与托盘",
+        "中文键检查",
+        "诊断样例"
+      ],
+      "review_focus": [
+        "先功能后美化；不能增加视频预览或默认按键日志"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T19",
+      "phase": "P2",
+      "title": "建立 Mac 安全回环与故障注入套件",
+      "depends_on": [
+        "T06",
+        "T07",
+        "T08",
+        "T12"
+      ],
+      "paths": [
+        "测试支持模块",
+        "协议fixtures",
+        "loopback runner"
+      ],
+      "actions": [
+        "两端隔离身份/配置，默认 FakeInjector，禁止真实捕获。",
+        "验证认证、可靠事件、datagram乱序、断连/超时与旧会话。",
+        "测试功能仅在 test/dev 明确开启；生产版本不接受测试凭据和注入端口。"
+      ],
+      "test_ids": [
+        "M05",
+        "A10",
+        "A16",
+        "A18",
+        "A22",
+        "A24",
+        "A26"
+      ],
+      "deliverables": [
+        "可在单台Mac跑的回环套件",
+        "故障报告"
+      ],
+      "review_focus": [
+        "双进程真实桌面互相捕获不是安全模拟器；不能让测试阻碍用户控制电脑"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T20",
+      "phase": "P4",
+      "title": "完成自动化回归及代码审查",
+      "depends_on": [
+        "T10",
+        "T11",
+        "T16",
+        "T18",
+        "T19"
+      ],
+      "paths": [
+        "全部本轮修改范围",
+        "tests/fixtures",
+        "回归记录"
+      ],
+      "actions": [
+        "运行适用的全部自动化用例和Mac编译；修复新引入的失败。",
+        "审查线程/锁/资源上限/授权/清理/配置迁移；记录上游既有失败。",
+        "Windows/LOL环境缺失用独立状态记录，不阻塞后续本地打包。"
+      ],
+      "test_ids": [
+        "A01",
+        "A02",
+        "A03",
+        "A04",
+        "A05",
+        "A06",
+        "A07",
+        "A08",
+        "A09",
+        "A10",
+        "A11",
+        "A12",
+        "A13",
+        "A14",
+        "A15",
+        "A16",
+        "A17",
+        "A18",
+        "A19",
+        "A20",
+        "A21",
+        "A22",
+        "A23",
+        "A24",
+        "A25",
+        "A26",
+        "A27",
+        "A28",
+        "A29",
+        "A30",
+        "A31",
+        "A32",
+        "A33",
+        "A34",
+        "A35",
+        "A36",
+        "A37",
+        "A38",
+        "A39",
+        "A40",
+        "A41",
+        "A42",
+        "A43",
+        "A44",
+        "M01",
+        "M05"
+      ],
+      "deliverables": [
+        "自动化报告",
+        "主线程审查记录",
+        "未验证清单"
+      ],
+      "review_focus": [
+        "没有运行不得勾PASS；跳过不算通过；严重安全失败禁止真实激活但不挡无关文档工作"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T21",
+      "phase": "P0",
+      "title": "建立可选原生 Windows CI 与构建矩阵",
+      "depends_on": [
+        "T01",
+        "T02",
+        "T03"
+      ],
+      "paths": [
+        ".github/workflows 新测试工作流",
+        "Windows构建脚本"
+      ],
+      "actions": [
+        "可在早期插入本任务：本机Mac开发时尽早检查Windows cfg分支。",
+        "只做非交互 lint/build/lib tests 和预览产物；不要求 LOL/交互桌面。",
+        "复用锁文件；最小权限；不创建公开release，不使用付费runner；CI不可用保留脚本继续Mac任务。"
+      ],
+      "test_ids": [
+        "W01",
+        "A42"
+      ],
+      "deliverables": [
+        "CI文件",
+        "本地可替代的Windows命令",
+        "实际CI状态或未运行原因"
+      ],
+      "review_focus": [
+        "工作流存在不等于运行通过；远程PR代码不获得发布秘密"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T22",
+      "phase": "P4",
+      "title": "生成 Mac ARM64 本地预览包",
+      "depends_on": [
+        "T20",
+        "T02"
+      ],
+      "paths": [
+        "构建配置",
+        "scripts Mac preview",
+        "交付清单"
+      ],
+      "actions": [
+        "原生构建可用的app/dmg；从真实输出查找，不猜路径。",
+        "记录架构、版本、SHA和校验和；无付费证书时标明签名/公证状态。",
+        "安装/替换现有app及TCC授权由用户确认，构建不应顺带修改钥匙串。"
+      ],
+      "test_ids": [
+        "M01",
+        "A42"
+      ],
+      "deliverables": [
+        "真实Mac产物（环境可用时）",
+        "构建日志与签名状态",
+        "本机预览使用说明"
+      ],
+      "review_focus": [
+        "未生成不得伪造链接；ad hoc签名不是Developer ID公证"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T23",
+      "phase": "P4",
+      "title": "准备或生成 Windows 预览包",
+      "depends_on": [
+        "T20",
+        "T21"
+      ],
+      "paths": [
+        "Windows构建/打包脚本",
+        "CI artifacts",
+        "交付清单"
+      ],
+      "actions": [
+        "可用原生Windows CI生成unsigned预览EXE/安装包。",
+        "没有runner时完成脚本和已审查代码，windows_build记pending_environment，不阻塞T25。",
+        "安装器不能默认部署安全桌面helper；产物存在才给路径/校验和。"
+      ],
+      "test_ids": [
+        "W01",
+        "A40",
+        "A42"
+      ],
+      "deliverables": [
+        "Windows真实产物或明确待构建条目",
+        "构建命令/工作流"
+      ],
+      "review_focus": [
+        "task implementation可指脚本实现完成，windows_build仍必须独立显示未完成"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T24",
+      "phase": "P4",
+      "title": "资源诊断与可选运行检查",
+      "depends_on": [
+        "T17",
+        "T19"
+      ],
+      "paths": [
+        "诊断采样脚本",
+        "性能记录模板",
+        "使用说明"
+      ],
+      "actions": [
+        "在Mac可用时采样CPU/RSS/子进程/唤醒，明确单位和时长。",
+        "生成Windows帧时间/回报率可选测试步骤，不要求用户现在运行游戏。",
+        "记录强杀、同时本地输入、权限失效的边界，不宣称绝对零GPU。"
+      ],
+      "test_ids": [
+        "M07",
+        "W05",
+        "L04"
+      ],
+      "deliverables": [
+        "资源基线或未运行原因",
+        "可选测试说明",
+        "性能风险"
+      ],
+      "review_focus": [
+        "测试没跑不记PASS；不为追求数据修改用户游戏或系统全局配置"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    },
+    {
+      "id": "T25",
+      "phase": "P4",
+      "title": "收尾交付、回滚与续接清单",
+      "depends_on": [
+        "T20",
+        "T22",
+        "T23",
+        "T24"
+      ],
+      "paths": [
+        "docs/handoff进度",
+        "最终交付报告",
+        "校验和",
+        "known-issues"
+      ],
+      "actions": [
+        "核对任务实现/审查/各平台证据，Windows环境缺失不升级为全项目阻塞。",
+        "给出真实改动、提交、产物、安装、权限、回滚和未验证项目。",
+        "本轮最后仍将LOL设为optional_not_run；只报告已证明的兼容性，不自动公开发布或推送私密资料。"
+      ],
+      "test_ids": [],
+      "deliverables": [
+        "DELIVERY.md",
+        "最新taskboard",
+        "测试报告",
+        "下一会话可续接的任务"
+      ],
+      "review_focus": [
+        "“代码完成”与“所有平台实测通过”分开；不可只输出又一份未来计划"
+      ],
+      "implementation": "todo",
+      "review": "pending",
+      "verification": {
+        "automated": "not_run",
+        "mac_build": "not_run",
+        "mac_runtime": "not_run",
+        "windows_build": "not_run",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [],
+      "blocked_reason": null
+    }
+  ]
+}

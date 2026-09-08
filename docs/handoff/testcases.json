@@ -1,0 +1,556 @@
+{
+  "schema_version": 1,
+  "all_statuses_are_initial": true,
+  "policy": "LOL and physical Windows tests are optional and never a hard development/merge/package gate.",
+  "tests": [
+    {
+      "id": "A01",
+      "name": "GoRemote 幂等",
+      "layer": "automated",
+      "method": "FakeRoute/FakePeer 重复请求同一目标",
+      "expected": "只产生一次准备/激活，不意外切回",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A02",
+      "name": "本地返回不等网络",
+      "layer": "automated",
+      "method": "transport 永久不回应，调用 GoLocal",
+      "expected": "本地覆盖和捕获恢复请求立即可观察",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A03",
+      "name": "取消后晚 ACK",
+      "layer": "automated",
+      "method": "Prepare 后取消，再注入 Ready/CommitAck",
+      "expected": "保持本地，不激活已取消请求",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A04",
+      "name": "按键未松开交接",
+      "layer": "automated",
+      "method": "假时钟推进，始终按住按钮/修饰键",
+      "expected": "超时取消，不丢本机输入",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A05",
+      "name": "热键去重",
+      "layer": "automated",
+      "method": "系统热键+钩子双入口与 repeat",
+      "expected": "一次物理组合只派发一次动作",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A06",
+      "name": "热键前缀释放",
+      "layer": "automated",
+      "method": "远端已经持有 Ctrl/Alt 后识别返回键",
+      "expected": "消费控制触发键，释放已转发修饰键",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A07",
+      "name": "紧急路径独立",
+      "layer": "automated",
+      "method": "阻塞路由 actor 后触发紧急标志",
+      "expected": "钩子优先本地放行，不排普通队列",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A08",
+      "name": "本地游戏最短路径",
+      "layer": "automated",
+      "method": "数万模拟鼠标事件；重后端设为一调用即失败",
+      "expected": "没有网络/布局重算/磁盘/鼠标归中调用",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A09",
+      "name": "焦点失败回退",
+      "layer": "automated",
+      "method": "FocusPort 返回 denied/unavailable",
+      "expected": "留本地且产生明确错误，不循环抢前台",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A10",
+      "name": "未配对拒绝",
+      "layer": "automated",
+      "method": "伪造设备名/IP 发送输入",
+      "expected": "未生成 AuthenticatedPeer；注入调用为零",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A11",
+      "name": "身份变化拒绝",
+      "layer": "automated",
+      "method": "地址相同但配对证书/凭据变化",
+      "expected": "拒绝旧信任，要求重新授权",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A12",
+      "name": "授权绑定连接",
+      "layer": "automated",
+      "method": "复制 peer_id 到另一连接/错误角色",
+      "expected": "不能借用其他连接的授权上下文",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A13",
+      "name": "协议不匹配",
+      "layer": "automated",
+      "method": "V1/未知版本/缺必要能力",
+      "expected": "明确拒绝，不降级到未授权协议",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A14",
+      "name": "长度与整数溢出",
+      "layer": "automated",
+      "method": "畸形长度、负坐标越界、图片乘法溢出",
+      "expected": "分配前有界拒绝，无 panic/OOM",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A15",
+      "name": "持久流分帧",
+      "layer": "automated",
+      "method": "逐字节/多帧合包/中间截断",
+      "expected": "正确恢复帧；截断终止会话不死等",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A16",
+      "name": "旧 boot/session 丢弃",
+      "layer": "automated",
+      "method": "进程代际改变后送旧包",
+      "expected": "旧输入不作用于新会话",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A17",
+      "name": "终止不复活",
+      "layer": "automated",
+      "method": "End 后补发 Pong/Commit/位置",
+      "expected": "终止会话保持无效",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A18",
+      "name": "接收超时释放",
+      "layer": "automated",
+      "method": "FakeClock+正常工作的 InjectorPort 下断网",
+      "expected": "超时后释放本会话已提交的输入",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A19",
+      "name": "旧映射松键",
+      "layer": "automated",
+      "method": "按键中修改键位配置后结束",
+      "expected": "按 down 时的映射发送 up",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A20",
+      "name": "自动重复/同键所有权",
+      "layer": "automated",
+      "method": "repeat/down 去重与两源键映射同目标",
+      "expected": "账本不膨胀、不提前释放目标键",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A21",
+      "name": "解码/注入失败结束",
+      "layer": "automated",
+      "method": "关键事件处理中途错误",
+      "expected": "会话结束、尽力释放、错误可见",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A22",
+      "name": "关键队列溢出",
+      "layer": "automated",
+      "method": "填满有界 critical 队列",
+      "expected": "本地恢复，不静默丢 key-up 后继续",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A23",
+      "name": "按钮携带位置",
+      "layer": "automated",
+      "method": "延迟移动 datagram，先传可靠点击",
+      "expected": "点击使用自己的位置快照",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A24",
+      "name": "拖拽跨通道顺序",
+      "layer": "automated",
+      "method": "按钮消息延迟，后续位置先到",
+      "expected": "位置等待 required_reliable_seq，迟到旧位置被忽略",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A25",
+      "name": "位移合并",
+      "layer": "automated",
+      "method": "大量相对位移转绝对/累计再合并",
+      "expected": "总位移正确，不因丢中间包缩短",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A26",
+      "name": "大载荷不占输入调度",
+      "layer": "automated",
+      "method": "fake bulk 长时间阻塞同时送关键输入",
+      "expected": "输入队列仍被调度；不据此宣称真实网络 QoS",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A27",
+      "name": "接收预算",
+      "layer": "automated",
+      "method": "并发超大 stream、无授权 bulk",
+      "expected": "有界拒绝，不无限 spawn 或分配",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A28",
+      "name": "钩子无慢调用",
+      "layer": "automated",
+      "method": "FakePort 延迟+调用白名单/代码审查",
+      "expected": "回调不等待网络、GUI、磁盘；FFI 不展开 panic",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A29",
+      "name": "DPI/布局映射",
+      "layer": "automated",
+      "method": "Retina、负坐标、不同缩放与 layout_revision",
+      "expected": "映射一致，未知布局不乱点",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A30",
+      "name": "Mac 修饰键映射",
+      "layer": "automated",
+      "method": "左右 Ctrl/Win/Alt/Shift 测试表",
+      "expected": "默认映射和互换预设符合设计",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A31",
+      "name": "终端与快捷键语义",
+      "layer": "automated",
+      "method": "默认 Ctrl+C 与 Win+C/V 输入序列",
+      "expected": "中断/Command 序列区分，不暗中重映射",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A32",
+      "name": "文本完整性",
+      "layer": "automated",
+      "method": "中文、emoji、多行、不同换行符、长 UTF-8",
+      "expected": "字节/字符不损坏，不默默截断",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A33",
+      "name": "剪贴板失败不清空",
+      "layer": "automated",
+      "method": "busy/error/empty/unsupported",
+      "expected": "不写远端空值，旧内容保持",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A34",
+      "name": "回声与新复制",
+      "layer": "automated",
+      "method": "远端写入后立刻本地复制 B",
+      "expected": "A 不循环，B 正常传播",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A35",
+      "name": "双端冲突",
+      "layer": "automated",
+      "method": "两端并发复制、乱序与重复操作",
+      "expected": "按确定性策略收敛，无无限回传",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A36",
+      "name": "重连不推旧内容",
+      "layer": "automated",
+      "method": "保存旧剪贴板后重启/重连",
+      "expected": "等待新复制或手动重发",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A37",
+      "name": "Mac 不启动剪贴板工具",
+      "layer": "automated",
+      "method": "mock process spawn 禁止并执行本机路径审查",
+      "expected": "生产 Mac 后端不反复启动 pbpaste/pbcopy",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A38",
+      "name": "图片/文本边界",
+      "layer": "automated",
+      "method": "超阈值、base64错、解码内存预算",
+      "expected": "分配/传输有界，超限错误可见",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A39",
+      "name": "窗口不拥有运行时",
+      "layer": "automated",
+      "method": "构造/销毁设置订阅、无 UI 时推进任务",
+      "expected": "连接/路由/剪贴板继续运行，订阅释放",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A40",
+      "name": "自启普通用户模式",
+      "layer": "automated",
+      "method": "设置/安装脚本静态测试",
+      "expected": "无默认 SYSTEM helper/登录前控制启用",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A41",
+      "name": "重复启动",
+      "layer": "automated",
+      "method": "单实例适配 fake 或平台可用实现",
+      "expected": "只打开设置，不重复捕获/绑定端口",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A42",
+      "name": "fork 身份与更新隔离",
+      "layer": "automated",
+      "method": "配置、安装脚本、前端调用与更新源扫描",
+      "expected": "不覆盖上游标识/用户配置，不自动安装上游更新",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A43",
+      "name": "日志与 IPC 安全",
+      "layer": "automated",
+      "method": "恶意字段、含密码的 fixture、诊断导出",
+      "expected": "参数被校验；日志不含正文、密钥和完整键流",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "A44",
+      "name": "中文设置一致",
+      "layer": "automated",
+      "method": "检查新增 i18n key 与错误码映射",
+      "expected": "无缺键/硬编码未翻译新增用户状态",
+      "blocking_development": true,
+      "status": "not_run"
+    },
+    {
+      "id": "M01",
+      "name": "Mac ARM64 构建",
+      "layer": "mac_build",
+      "method": "原生 M4 执行 lint/build/cargo test 和 app 构建",
+      "expected": "保存退出码、完整 SHA、产物架构和真实路径",
+      "blocking_development": false,
+      "status": "not_run"
+    },
+    {
+      "id": "M02",
+      "name": "菜单栏与关窗",
+      "layer": "mac_runtime",
+      "method": "用户允许后从正式 app 打开/关闭设置，保持后台",
+      "expected": "无运行时停止或设置窗口反复弹出",
+      "blocking_development": false,
+      "status": "not_run"
+    },
+    {
+      "id": "M03",
+      "name": "Mac 文本剪贴板原生读写",
+      "layer": "mac_runtime",
+      "method": "用户同意后使用固定测试文本，finally 恢复原内容",
+      "expected": "无外部工具循环；双向逻辑使用假 peer/回环",
+      "blocking_development": false,
+      "status": "not_run"
+    },
+    {
+      "id": "M04",
+      "name": "Mac 权限拒绝与撤销",
+      "layer": "mac_runtime",
+      "method": "用户通过系统界面授权/撤销测试 app 权限",
+      "expected": "拒绝接管且显示原因；不能自动改 TCC",
+      "blocking_development": false,
+      "status": "not_run"
+    },
+    {
+      "id": "M05",
+      "name": "安全协议回环",
+      "layer": "mac_automated",
+      "method": "两个隔离 fixture peer，loopback，默认 FakeInjector",
+      "expected": "验证 auth/framing/session，不钩真实输入",
+      "blocking_development": false,
+      "status": "not_run"
+    },
+    {
+      "id": "M06",
+      "name": "Mac 键位/输入法",
+      "layer": "mac_runtime",
+      "method": "固定测试文本框/终端，人为确认后执行有限测试",
+      "expected": "组合键和 IME 行为记录；不在代码编辑器自动乱输入",
+      "blocking_development": false,
+      "status": "not_run"
+    },
+    {
+      "id": "M07",
+      "name": "Mac 长时后台",
+      "layer": "mac_runtime",
+      "method": "可用时采样 8 小时；时间不足记录实际时长",
+      "expected": "无持续增长；不能把短时测量冒充长时",
+      "blocking_development": false,
+      "status": "not_run"
+    },
+    {
+      "id": "W01",
+      "name": "Windows 原生编译及非交互测试",
+      "layer": "windows_build",
+      "method": "可用的原生 CI 运行 cfg Windows 编译和 lib 测试",
+      "expected": "真实日志；不推导为鼠标钩子运行通过",
+      "blocking_development": false,
+      "status": "not_run"
+    },
+    {
+      "id": "W02",
+      "name": "Windows 正式版无 CMD",
+      "layer": "optional_windows",
+      "method": "日后桌面打开 release EXE/安装包",
+      "expected": "没有持续控制台窗口，辅助进程也检查",
+      "blocking_development": false,
+      "status": "optional_not_run"
+    },
+    {
+      "id": "W03",
+      "name": "双机桌面切换",
+      "layer": "optional_windows",
+      "method": "桌面连续切 Mac/回 Win，可选 200 次",
+      "expected": "记录次数、热键和卡键情况，不用模拟代替实测",
+      "blocking_development": false,
+      "status": "optional_not_run"
+    },
+    {
+      "id": "W04",
+      "name": "Windows 锁屏/UAC 边界",
+      "layer": "optional_windows",
+      "method": "测试普通用户模式进入锁屏/权限提示",
+      "expected": "不默认提权；明确受限状态并保留本地控制",
+      "blocking_development": false,
+      "status": "optional_not_run"
+    },
+    {
+      "id": "W05",
+      "name": "高回报率鼠标",
+      "layer": "optional_windows",
+      "method": "按用户鼠标实际支持的回报率测试",
+      "expected": "不改本机全局设置；记录事件负载",
+      "blocking_development": false,
+      "status": "optional_not_run"
+    },
+    {
+      "id": "W06",
+      "name": "双机剪贴板与休眠",
+      "layer": "optional_windows",
+      "method": "Win/Mac 复制、Mac睡眠唤醒、短时网络中断",
+      "expected": "重连不自动接管或覆盖旧内容",
+      "blocking_development": false,
+      "status": "optional_not_run"
+    },
+    {
+      "id": "L01",
+      "name": "LOL 客户端/选英雄切换",
+      "layer": "optional_lol",
+      "method": "日后用户自愿在非排位场景验证",
+      "expected": "记录有效/失败及窗口模式；不阻塞代码开发合并打包",
+      "blocking_development": false,
+      "status": "optional_not_run"
+    },
+    {
+      "id": "L02",
+      "name": "LOL 练习对局切换",
+      "layer": "optional_lol",
+      "method": "可选全屏/无边框、Alt+Tab再切换",
+      "expected": "记录实际行为，不承诺所有版本",
+      "blocking_development": false,
+      "status": "optional_not_run"
+    },
+    {
+      "id": "L03",
+      "name": "远控时游戏是否收到输入",
+      "layer": "optional_lol",
+      "method": "可选观察控制Mac期间游戏是否同步动作",
+      "expected": "记录串输入；未测不能宣称已隔离",
+      "blocking_development": false,
+      "status": "optional_not_run"
+    },
+    {
+      "id": "L04",
+      "name": "游戏帧时间对比",
+      "layer": "optional_lol",
+      "method": "可选固定场景比较退出/托盘/LocalGame",
+      "expected": "平均FPS、1%low/P99与波动；无数据不下性能结论",
+      "blocking_development": false,
+      "status": "optional_not_run"
+    }
+  ]
+}
