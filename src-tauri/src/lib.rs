@@ -761,15 +761,18 @@ impl AppRuntime {
         )));
         let receiver_for_control = Arc::clone(&receiver_runtime);
         let receiver_for_input = Arc::clone(&receiver_runtime);
+        let receiver_for_motion = Arc::clone(&receiver_runtime);
         let receiver_for_input_close = Arc::clone(&receiver_runtime);
         let receiver_for_lease = Arc::downgrade(&receiver_runtime);
         let lease_epoch = Arc::new(Instant::now());
         let lease_epoch_for_control = Arc::clone(&lease_epoch);
         let lease_epoch_for_input = Arc::clone(&lease_epoch);
+        let lease_epoch_for_motion = Arc::clone(&lease_epoch);
         let v2_control_enabled = Arc::clone(&self.input_receive_enabled);
         let v2_input_enabled = Arc::clone(&self.input_receive_enabled);
         let fault_for_control = Arc::clone(&self.v2_session_fault);
         let fault_for_input = Arc::clone(&self.v2_session_fault);
+        let fault_for_motion = Arc::clone(&self.v2_session_fault);
         let fault_for_input_close = Arc::clone(&self.v2_session_fault);
         let fault_for_lease = Arc::clone(&self.v2_session_fault);
 
@@ -784,6 +787,44 @@ impl AppRuntime {
                     .unwrap_or(false);
                 if !role_allowed {
                     return;
+                }
+                match protocol_v2::decode_motion(&payload) {
+                    Ok(frame) => {
+                        let result = receiver_for_motion.lock().map(|mut receiver| {
+                            receiver.handle_motion_at(
+                                frame,
+                                &authenticated,
+                                lease_epoch_for_motion
+                                    .elapsed()
+                                    .as_millis()
+                                    .min(u128::from(u64::MAX))
+                                    as u64,
+                            )
+                        });
+                        match result {
+                            Ok(Ok(_)) => {
+                                transport_packets_for_input.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Ok(Err(error)) => {
+                                if let Ok(mut fault) = fault_for_motion.lock() {
+                                    *fault = Some(format!("V2 motion rejected: {error:?}"));
+                                }
+                            }
+                            Err(_) => {
+                                if let Ok(mut fault) = fault_for_motion.lock() {
+                                    *fault = Some("V2 motion session lock is unavailable".into());
+                                }
+                            }
+                        }
+                        return;
+                    }
+                    Err(error) if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED => {
+                        if let Ok(mut fault) = fault_for_motion.lock() {
+                            *fault = Some(format!("V2 motion decode rejected: {error:?}"));
+                        }
+                        return;
+                    }
+                    Err(_) => {}
                 }
                 if input::handle_input_datagram(
                     &layout_for_input,
