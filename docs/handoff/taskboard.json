@@ -82,7 +82,7 @@
       "implementation": "done",
       "review": "approved",
       "verification": {
-        "automated": "pass",
+        "automated": "fail",
         "mac_build": "pass",
         "mac_runtime": "not_run",
         "windows_build": "pending_environment",
@@ -221,7 +221,7 @@
       "implementation": "in_progress",
       "review": "pending",
       "verification": {
-        "automated": "pass",
+        "automated": "not_run",
         "mac_build": "not_run",
         "mac_runtime": "not_run",
         "windows_build": "not_run",
@@ -241,7 +241,11 @@
             "T03"
           ],
           "implementation": "done",
-          "review": "approved"
+          "review": "approved",
+          "verification": {
+            "automated": "pass",
+            "scope": "16 pure coordinator tests only; production integration T04.b not implemented."
+          }
         },
         {
           "id": "T04.b",
@@ -291,7 +295,7 @@
       "implementation": "in_progress",
       "review": "pending",
       "verification": {
-        "automated": "pass",
+        "automated": "not_run",
         "mac_build": "not_run",
         "mac_runtime": "not_run",
         "windows_build": "not_run",
@@ -308,7 +312,11 @@
           "id": "T05.a",
           "title": "核验授权边界并关闭旧 LAN 入口",
           "implementation": "done",
-          "review": "approved"
+          "review": "approved",
+          "verification": {
+            "automated": "pass",
+            "scope": "Only fail-closed legacy gate verified; A10-A12 authenticated connection acceptance not complete."
+          }
         },
         {
           "id": "T05.b",

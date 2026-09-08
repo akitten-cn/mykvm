@@ -1,0 +1,21 @@
+# 决策记录
+
+## ADR-001：基线与工作区
+
+使用新目录的本地分支 `feat/mac-first-kvm`，上游 `https://github.com/XxMinor/mykvm.git`，完整基线 `a2ea4164861de31b562c8417eeb7879dbc8c23cb`。审查参考 `bb5421fe1d4c0c8c72bb3f6c0c35f0a0f994209b` 可达，但不是强制回退目标；其新增拖放内容不直接并入本轮。没有覆盖已有工作树，也没有 GitHub 写入授权或远程推送。
+
+## ADR-002：安全开发与身份隔离
+
+Rust 安装到外层项目 `.toolchain/`，使用 `source/with-rust.sh`，不修改全局模型、代理配置和 shell profile。保留原 MIT 许可证及已有 QUIC stream 并发修复、Windows release 无控制台属性。应用身份与 helper、更新、安装副作用分别核验，不能只改显示名。审查后补充发现运行时 netsh 路径，已在执行前加策略门禁并纳入检查。
+
+## ADR-003：先纯路由核心，再真实接入
+
+T04 拆为 T04.a 与 T04.b。原子紧急返回独立于 actor 锁及网络队列；取消代次避免晚 ACK 恢复远控。T04.a 已测试，T04.b 依赖 T05/T06，不宣称纯状态机已提供实际切换功能。
+
+## ADR-004：旧 LAN 入口关闭
+
+现有服务端 with_no_client_auth、SocketAddr 授权缓存及发现更新信任不构成双向连接授权。按交接要求，旧 discovery/input/clipboard/file 入口在开启网络或操作系统副作用前拒绝。该限制用于未完成的开发分支，会使其暂时无法远控；不是最终产品方案。T05.b 必须实现逐设备持久信任及具体 QUIC 连接绑定，再接 V2，禁止简单翻转旧策略常量。
+
+## ADR-005：验证分层
+
+Windows runner 不可用时保留真实原生检查工作流，状态记 pending_environment，继续 Mac 可执行任务。基线 fmt/clippy 失败单独留档；新核心格式及适用回归通过，不把跳过记成通过。实机、打包和资源数据不能由 Mac 库编译替代。
