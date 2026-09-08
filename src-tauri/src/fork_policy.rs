@@ -10,9 +10,10 @@ pub(crate) const LEGACY_LAN_DATA_ENABLED: bool = false;
 // T07 provides the pressed-input ledger, stream-close cleanup and lease timeout.
 pub(crate) const V2_NATIVE_RECEIVER_ENABLED: bool = true;
 
-// Keep the Windows controller closed until its native conditional build,
-// physical-release gate, focus handoff and motion path all have evidence.
-pub(crate) const V2_NATIVE_CONTROLLER_ENABLED: bool = false;
+// T08-T11 provide bounded motion, layout gating, physical-release checks,
+// control hotkeys, the local-game fast path and conservative focus handoff.
+// Platform build/runtime evidence remains tracked separately from this gate.
+pub(crate) const V2_NATIVE_CONTROLLER_ENABLED: bool = true;
 
 pub(crate) fn require_privileged_features() -> Result<(), String> {
     if PRIVILEGED_FEATURES_ENABLED {
@@ -28,6 +29,6 @@ mod tests {
     fn privileged_service_actions_are_rejected() {
         assert!(super::require_privileged_features().is_err());
         assert!(super::V2_NATIVE_RECEIVER_ENABLED);
-        assert!(!super::V2_NATIVE_CONTROLLER_ENABLED);
+        assert!(super::V2_NATIVE_CONTROLLER_ENABLED);
     }
 }

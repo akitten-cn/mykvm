@@ -78,8 +78,8 @@ test('T07: native input is enabled only on the authenticated V2 path', () => {
   assert.match(lib, /V2_NATIVE_RECEIVER_ENABLED[\s\S]*?receiver_mode_enabled/)
 })
 
-test('T04.b3: incomplete Windows controller stays compile-time closed', () => {
-  assert.match(read('src-tauri/src/fork_policy.rs'), /V2_NATIVE_CONTROLLER_ENABLED: bool = false/)
+test('T04.b3: reviewed Windows V2 controller is the only enabled control path', () => {
+  assert.match(read('src-tauri/src/fork_policy.rs'), /V2_NATIVE_CONTROLLER_ENABLED: bool = true/)
   const lib = read('src-tauri/src/lib.rs')
   assert.match(lib, /V2_NATIVE_CONTROLLER_ENABLED[\s\S]*?controller_mode_enabled/)
   const input = read('src-tauri/src/input.rs')
