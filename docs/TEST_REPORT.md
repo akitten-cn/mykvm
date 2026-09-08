@@ -26,3 +26,11 @@
 开发过程中路由补充测试暴露了重复 Ready 覆盖会话和部分准备失败清理问题，已修复并通过回归。测试默认使用 FakeCapture/FakeInjector，不调用真实键鼠或剪贴板。
 
 纯核心通过不等于 A01–A04 等端到端用例通过；这些用例保留 not_run 并记录部分证据。认证正反测试、协议回环、真实 Windows 分支编译、可靠释放集成、资源数据均尚未完成。详见 taskboard、testcases 和 SOURCE_AUDIT。
+
+## T05.b 连接授权增量
+
+2026-09-08 在 Mac arm64 上执行 `../source/with-rust.sh python3 ../source/run-check.py t05b-native node scripts/check-native.mjs`，退出码 0。前端 lint/build、Mac cargo check、7 项隔离检查及 135 个 Rust 库测试全部通过。测试数较上一阶段增加 8 项。
+
+其中两项使用真实本机 UDP/QUIC endpoint，但只传测试字节，不调用桌面、输入注入或剪贴板：已配对证书成功产生带连接代次和角色的认证上下文；未知证书连接发送的 datagram 未到达处理回调。其余负例覆盖证书旋转、重复证书、错误角色、配对声明证书与 TLS 证书不一致。A10、A11、A12 标记 pass；A43 和 V2 会话相关用例仍为 not_run。
+
+本次命令运行时工作树尚未提交，所以证据包装器记录的是父提交 `4e003d2802fcce97fe6b73929292fc5164a38db9`；日志实际编译了当前未提交 diff。提交后将使用同一代码树执行一次定向复核并记录最终 SHA。

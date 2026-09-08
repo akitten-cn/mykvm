@@ -215,6 +215,8 @@ struct LayoutState {
     pair_secret: String,
     #[serde(default)]
     paired_controllers: Vec<PairedController>,
+    #[serde(default)]
+    trusted_peers: Vec<TrustedPeerRecord>,
     #[serde(default = "default_clipboard_sync")]
     clipboard_sync: bool,
     #[serde(default = "default_file_transfer_enabled")]
@@ -271,6 +273,16 @@ struct PairedController {
     paired_at_ms: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TrustedPeerRecord {
+    id: String,
+    transport_public_key: String,
+    role: String,
+    trust_revision: u64,
+    paired_at_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NativeStageStatus {
     state: String,
@@ -283,7 +295,6 @@ fn legacy_data_blocked_status() -> NativeStageStatus {
         detail: "当前为开发版本：旧 LAN 协议已禁用，V2 连接授权与会话接入尚未完成。请继续使用原有控制工具。".into(),
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -720,86 +731,141 @@ impl AppRuntime {
         let pairing_challenge_for_stream = Arc::clone(&self.pairing_challenge);
         let config_path_for_pairing = self.config_path.clone();
         let peers_for_pairing = Arc::clone(&self.peers);
+        let trust_registry = quic_transport::TrustedPeerRegistry::new(
+            self.layout
+                .lock()
+                .map(|layout| quic_trusted_peers(&layout))
+                .map_err(|_| "layout state lock poisoned".to_string())?,
+        )?;
+        let trust_registry_for_pairing = trust_registry.clone();
 
-        let on_datagram = Arc::new(move |payload: Vec<u8>, source| {
-            if !input_receive_enabled.load(Ordering::Relaxed) {
-                return;
-            }
-            if input::handle_input_datagram(
-                &layout_for_input,
-                &native_layout_for_input,
-                &payload,
-                source,
-                &input_events,
-                &clipboard_target,
-            ) {
-                transport_packets_for_input.fetch_add(1, Ordering::Relaxed);
-            }
-        });
+        let on_datagram = Arc::new(
+            move |payload: Vec<u8>, authenticated: quic_transport::AuthenticatedPeer| {
+                if !input_receive_enabled.load(Ordering::Relaxed) {
+                    return;
+                }
+                let role_allowed = layout_for_input
+                    .lock()
+                    .map(|layout| authenticated_peer_role_allowed(&layout, authenticated.role))
+                    .unwrap_or(false);
+                if !role_allowed {
+                    return;
+                }
+                if input::handle_input_datagram(
+                    &layout_for_input,
+                    &native_layout_for_input,
+                    &payload,
+                    authenticated.remote_addr,
+                    &input_events,
+                    &clipboard_target,
+                ) {
+                    transport_packets_for_input.fetch_add(1, Ordering::Relaxed);
+                }
+            },
+        );
 
-        let on_stream = Arc::new(move |payload: Vec<u8>, source| {
-            if handle_pairing_stream_packet(
-                &payload,
-                source,
-                &layout_for_pairing,
-                &pairing_challenge_for_stream,
-                &config_path_for_pairing,
-                &peers_for_pairing,
-            ) {
-                transport_packets_for_stream.fetch_add(1, Ordering::Relaxed);
-                return true;
-            }
+        let on_stream = Arc::new(
+            move |payload: Vec<u8>, connection_peer: quic_transport::ConnectionPeer| {
+                let source = match &connection_peer {
+                    quic_transport::ConnectionPeer::Authenticated(peer) => peer.remote_addr,
+                    quic_transport::ConnectionPeer::Unauthenticated { remote_addr, .. } => {
+                        *remote_addr
+                    }
+                };
+                let presented_certificate = match &connection_peer {
+                    quic_transport::ConnectionPeer::Unauthenticated {
+                        presented_certificate: Some(certificate),
+                        ..
+                    } => Some(certificate.as_str()),
+                    _ => None,
+                };
+                if pairing_confirmation_matches_presented_certificate(
+                    &payload,
+                    presented_certificate,
+                ) && handle_pairing_stream_packet(
+                    &payload,
+                    source,
+                    &layout_for_pairing,
+                    &pairing_challenge_for_stream,
+                    &config_path_for_pairing,
+                    &peers_for_pairing,
+                ) {
+                    if let Ok(layout) = layout_for_pairing.lock() {
+                        if let Err(error) =
+                            trust_registry_for_pairing.replace(quic_trusted_peers(&layout))
+                        {
+                            log::warn!("failed to refresh paired QUIC identity: {error}");
+                            return false;
+                        }
+                    }
+                    transport_packets_for_stream.fetch_add(1, Ordering::Relaxed);
+                    return true;
+                }
 
-            // Snapshot the layout instead of holding the lock through the
-            // handlers: clipboard writes retry with sleeps, spawn pbcopy and
-            // decode up to 32MB of base64, and file transfers write chunks to
-            // disk — holding the layout lock through any of that stalls the
-            // input hot paths (which take the same lock) for tens to hundreds
-            // of ms per sync. Stream packets are rare; one clone is nothing.
-            let layout = {
-                let Ok(layout) = layout_for_clipboard.lock() else {
+                let quic_transport::ConnectionPeer::Authenticated(authenticated) = connection_peer
+                else {
                     return false;
                 };
-                layout.clone()
-            };
-            let current_peer = local_peer_from_layout(&layout);
 
-            if handle_file_transfer_packet(
-                &payload,
-                &layout,
-                &current_peer.id,
-                &file_transfers,
-                &app_handle_for_file_transfer,
-            ) {
-                transport_packets_for_stream.fetch_add(1, Ordering::Relaxed);
-                return true;
-            }
+                // Snapshot the layout instead of holding the lock through the
+                // handlers: clipboard writes retry with sleeps, spawn pbcopy and
+                // decode up to 32MB of base64, and file transfers write chunks to
+                // disk — holding the layout lock through any of that stalls the
+                // input hot paths (which take the same lock) for tens to hundreds
+                // of ms per sync. Stream packets are rare; one clone is nothing.
+                let layout = {
+                    let Ok(layout) = layout_for_clipboard.lock() else {
+                        return false;
+                    };
+                    layout.clone()
+                };
+                let current_peer = local_peer_from_layout(&layout);
+                if !authenticated_peer_role_allowed(&layout, authenticated.role) {
+                    return false;
+                }
 
-            if !clipboard_receive_enabled.load(Ordering::Relaxed) {
-                return false;
-            }
-            if handle_clipboard_packet(
-                &payload,
-                &layout,
-                &current_peer.id,
-                &clipboard_seen_text,
-                &clipboard_echo_until,
-                &clipboard_last_sequences,
-            ) {
-                transport_packets_for_stream.fetch_add(1, Ordering::Relaxed);
-                clipboard_packets.fetch_add(1, Ordering::Relaxed);
-                return true;
-            }
-            false
-        });
+                if handle_file_transfer_packet(
+                    &payload,
+                    &layout,
+                    &current_peer.id,
+                    &file_transfers,
+                    &app_handle_for_file_transfer,
+                ) {
+                    transport_packets_for_stream.fetch_add(1, Ordering::Relaxed);
+                    return true;
+                }
+
+                if !clipboard_receive_enabled.load(Ordering::Relaxed) {
+                    return false;
+                }
+                if handle_clipboard_packet(
+                    &payload,
+                    &layout,
+                    &current_peer.id,
+                    &clipboard_seen_text,
+                    &clipboard_echo_until,
+                    &clipboard_last_sequences,
+                ) {
+                    transport_packets_for_stream.fetch_add(1, Ordering::Relaxed);
+                    clipboard_packets.fetch_add(1, Ordering::Relaxed);
+                    return true;
+                }
+                false
+            },
+        );
 
         let identity_dir = self
             .config_path
             .parent()
             .map(|parent| parent.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
-        let transport =
-            quic_transport::start(preferred_port, identity_dir, on_datagram, on_stream)?;
+        let transport = quic_transport::start(
+            preferred_port,
+            identity_dir,
+            trust_registry,
+            on_datagram,
+            on_stream,
+        )?;
         let mut stored = self
             .quic_transport
             .lock()
@@ -1088,7 +1154,8 @@ impl AppRuntime {
 
     fn start_clipboard(&self, layout: LayoutState) -> NativeStageStatus {
         if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
-            self.clipboard_receive_enabled.store(false, Ordering::Relaxed);
+            self.clipboard_receive_enabled
+                .store(false, Ordering::Relaxed);
             return legacy_data_blocked_status();
         }
 
@@ -1299,6 +1366,7 @@ fn merge_runtime_owned_layout_fields(
     // clear them and force the client to be paired again.
     incoming.cluster_id = current.cluster_id.clone();
     incoming.pair_secret = current.pair_secret.clone();
+    incoming.trusted_peers = current.trusted_peers.clone();
 
     if current.machine_role == "client"
         && incoming.machine_role == "client"
@@ -1343,6 +1411,9 @@ fn merge_disk_layout_into_runtime(mut disk: LayoutState, current: &LayoutState) 
         disk.cluster_id = current.cluster_id.clone();
         disk.pair_secret = current.pair_secret.clone();
         disk.paired_controllers = current.paired_controllers.clone();
+    }
+    if disk.trusted_peers.is_empty() && !current.trusted_peers.is_empty() {
+        disk.trusted_peers = current.trusted_peers.clone();
     }
 
     merge_local_runtime_device_fields(&mut disk, current);
@@ -2349,6 +2420,22 @@ fn confirm_lan_pairing(
             return Err(error);
         }
     };
+    let trusted_snapshot = {
+        let mut stored = state
+            .layout
+            .lock()
+            .map_err(|_| "layout state lock poisoned".to_string())?;
+        upsert_trusted_peer(
+            &mut stored.trusted_peers,
+            &peer.id,
+            &peer.transport_public_key,
+            "receiver",
+            now_ms(),
+        )?;
+        stored.clone()
+    };
+    write_layout_to_disk(&state.config_path, &trusted_snapshot)?;
+    transport.replace_trusted_peers(quic_trusted_peers(&trusted_snapshot))?;
     merge_peer(&state.peers, peer.clone());
     sync_layout_peer_presence(&state.layout, &state.peers);
     Ok(peer)
@@ -2383,9 +2470,15 @@ fn reset_pairing(state: tauri::State<'_, AppRuntime>) -> Result<AppStateSnapshot
             .lock()
             .map_err(|_| "layout state lock poisoned".to_string())?;
         layout.paired_controllers.clear();
+        layout
+            .trusted_peers
+            .retain(|peer| peer.role != "controller");
         layout.clone()
     };
     write_layout_to_disk(&state.config_path, &updated_layout)?;
+    if let Some(transport) = state.quic_transport_handle() {
+        transport.replace_trusted_peers(quic_trusted_peers(&updated_layout))?;
+    }
 
     if let Ok(mut challenge) = state.pairing_challenge.lock() {
         *challenge = None;
@@ -2445,7 +2538,9 @@ fn is_portable_mode() -> Result<bool, String> {
 pub fn handle_process_control_args() -> bool {
     let args = env::args().collect::<Vec<_>>();
     if !crate::fork_policy::PRIVILEGED_FEATURES_ENABLED
-        && args.iter().any(|arg| arg == INSTALL_INPUT_SERVICE_ARG || arg == UNINSTALL_INPUT_SERVICE_ARG)
+        && args
+            .iter()
+            .any(|arg| arg == INSTALL_INPUT_SERVICE_ARG || arg == UNINSTALL_INPUT_SERVICE_ARG)
     {
         eprintln!("MyKVM Local does not install or manage privileged input services.");
         return true;
@@ -3829,6 +3924,7 @@ fn detect_local_layout(app: &AppHandle) -> LayoutState {
         cluster_id: default_cluster_id(),
         pair_secret: default_pair_secret(),
         paired_controllers: Vec::new(),
+        trusted_peers: Vec::new(),
         clipboard_sync: default_clipboard_sync(),
         file_transfer_enabled: default_file_transfer_enabled(),
         language: default_language(),
@@ -3872,6 +3968,7 @@ fn detect_fallback_layout() -> LayoutState {
         cluster_id: default_cluster_id(),
         pair_secret: default_pair_secret(),
         paired_controllers: Vec::new(),
+        trusted_peers: Vec::new(),
         clipboard_sync: default_clipboard_sync(),
         file_transfer_enabled: default_file_transfer_enabled(),
         language: default_language(),
@@ -3985,6 +4082,7 @@ fn normalize_saved_layout(saved_layout: LayoutState, detected_layout: LayoutStat
         cluster_id: normalize_cluster_id(&saved_layout.cluster_id),
         pair_secret: normalize_pair_secret(&saved_layout.pair_secret),
         paired_controllers: normalize_paired_controllers(saved_layout.paired_controllers),
+        trusted_peers: normalize_trusted_peers(saved_layout.trusted_peers),
         clipboard_sync: saved_layout.clipboard_sync,
         file_transfer_enabled: saved_layout.file_transfer_enabled,
         language: normalize_language(&saved_layout.language),
@@ -4340,6 +4438,55 @@ fn normalize_paired_controllers(controllers: Vec<PairedController>) -> Vec<Paire
                 && !controller.cluster_id.trim().is_empty()
         })
         .collect()
+}
+
+fn normalize_trusted_peers(peers: Vec<TrustedPeerRecord>) -> Vec<TrustedPeerRecord> {
+    let mut normalized = Vec::new();
+    for peer in peers {
+        if peer.id.trim().is_empty()
+            || peer.transport_public_key.trim().is_empty()
+            || peer.trust_revision == 0
+            || !matches!(peer.role.as_str(), "controller" | "receiver")
+            || normalized.iter().any(|existing: &TrustedPeerRecord| {
+                existing.id == peer.id || existing.transport_public_key == peer.transport_public_key
+            })
+        {
+            continue;
+        }
+        normalized.push(peer);
+    }
+    normalized
+}
+
+fn quic_trusted_peers(layout: &LayoutState) -> Vec<quic_transport::TrustedPeer> {
+    layout
+        .trusted_peers
+        .iter()
+        .filter_map(|peer| {
+            let role = match peer.role.as_str() {
+                "controller" => quic_transport::PeerRole::Controller,
+                "receiver" => quic_transport::PeerRole::Receiver,
+                _ => return None,
+            };
+            Some(quic_transport::TrustedPeer {
+                peer_id: peer.id.clone(),
+                certificate: peer.transport_public_key.clone(),
+                role,
+                trust_revision: peer.trust_revision,
+            })
+        })
+        .collect()
+}
+
+fn authenticated_peer_role_allowed(
+    layout: &LayoutState,
+    peer_role: quic_transport::PeerRole,
+) -> bool {
+    matches!(
+        (layout.machine_role.as_str(), peer_role),
+        ("client", quic_transport::PeerRole::Controller)
+            | ("server", quic_transport::PeerRole::Receiver)
+    )
 }
 
 fn normalize_language(language: &str) -> String {
@@ -6415,6 +6562,21 @@ fn pair_challenge_usable_for_local_peer(local_peer: &LanPeer, peer: &LanPeer) ->
     peer_visible_to_local_peer(local_peer, peer) || !peer.transport_public_key.trim().is_empty()
 }
 
+fn pairing_confirmation_matches_presented_certificate(
+    payload: &[u8],
+    presented_certificate: Option<&str>,
+) -> bool {
+    let Some(presented_certificate) = presented_certificate else {
+        return false;
+    };
+    let Some(packet) = decode_discovery_packet(payload) else {
+        return false;
+    };
+    packet.kind == "pair-confirm"
+        && !packet.peer.transport_public_key.trim().is_empty()
+        && packet.peer.transport_public_key == presented_certificate
+}
+
 fn handle_pairing_stream_packet(
     payload: &[u8],
     source: SocketAddr,
@@ -6591,10 +6753,48 @@ fn complete_pairing_from_confirm(
             cluster_id: layout.cluster_id.clone(),
             paired_at_ms: now_ms(),
         }];
+        upsert_trusted_peer(
+            &mut layout.trusted_peers,
+            &requester.id,
+            &requester.transport_public_key,
+            "controller",
+            now_ms(),
+        )?;
         layout.clone()
     };
 
     write_layout_to_disk(config_path, &snapshot)
+}
+
+fn upsert_trusted_peer(
+    peers: &mut Vec<TrustedPeerRecord>,
+    id: &str,
+    certificate: &str,
+    role: &str,
+    paired_at_ms: u64,
+) -> Result<(), String> {
+    if id.trim().is_empty() || certificate.trim().is_empty() {
+        return Err("配对设备缺少固定身份或证书。".into());
+    }
+    if !matches!(role, "controller" | "receiver") {
+        return Err("配对设备角色无效。".into());
+    }
+    let trust_revision = peers
+        .iter()
+        .map(|peer| peer.trust_revision)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1)
+        .max(1);
+    peers.retain(|peer| peer.id != id && peer.transport_public_key != certificate);
+    peers.push(TrustedPeerRecord {
+        id: id.trim().into(),
+        transport_public_key: certificate.trim().into(),
+        role: role.into(),
+        trust_revision,
+        paired_at_ms,
+    });
+    Ok(())
 }
 
 fn prune_stale_peers(peers: &Arc<Mutex<Vec<LanPeer>>>) {
@@ -6952,6 +7152,7 @@ mod tests {
             cluster_id: "cluster-test".into(),
             pair_secret: "secret-test".into(),
             paired_controllers: Vec::new(),
+            trusted_peers: Vec::new(),
             clipboard_sync: false,
             file_transfer_enabled: true,
             language: "cn".into(),
@@ -7439,8 +7640,44 @@ mod tests {
         assert_eq!(saved.pair_secret, "server-secret");
         assert_eq!(saved.paired_controllers.len(), 1);
         assert_eq!(saved.paired_controllers[0].id, server.id);
+        assert_eq!(saved.trusted_peers.len(), 1);
+        assert_eq!(saved.trusted_peers[0].role, "controller");
+        assert_eq!(
+            saved.trusted_peers[0].transport_public_key,
+            "server-public-key"
+        );
         assert!(pairing_challenge.lock().expect("challenge lock").is_none());
         let _ = fs::remove_file(config_path);
+    }
+
+    #[test]
+    fn pairing_confirmation_must_match_tls_presented_certificate() {
+        let mut server = test_peer();
+        server.machine_role = "server".into();
+        server.transport_public_key = "cert-from-payload".into();
+        let payload = encode_discovery_payload(
+            "pair-confirm",
+            &server,
+            DiscoveryPairingFields {
+                code: Some("123456".into()),
+                cluster_id: Some("cluster".into()),
+                secret: Some("secret".into()),
+                error: None,
+            },
+        )
+        .unwrap();
+
+        assert!(pairing_confirmation_matches_presented_certificate(
+            &payload,
+            Some("cert-from-payload")
+        ));
+        assert!(!pairing_confirmation_matches_presented_certificate(
+            &payload,
+            Some("different-tls-cert")
+        ));
+        assert!(!pairing_confirmation_matches_presented_certificate(
+            &payload, None
+        ));
     }
 
     #[test]
@@ -8153,5 +8390,34 @@ mod tests {
         );
         // A non-numeric trailing segment stays part of a bare host.
         assert_eq!(split_host_port("myhost"), ("myhost".to_string(), None));
+    }
+
+    #[test]
+    fn trusted_peer_updates_rotate_revision_and_remove_old_certificate() {
+        let mut peers = Vec::new();
+        upsert_trusted_peer(&mut peers, "controller", "cert-a", "controller", 10).unwrap();
+        upsert_trusted_peer(&mut peers, "controller", "cert-b", "controller", 20).unwrap();
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0].transport_public_key, "cert-b");
+        assert_eq!(peers[0].trust_revision, 2);
+    }
+
+    #[test]
+    fn authenticated_roles_follow_machine_direction() {
+        let mut layout = test_layout();
+        layout.machine_role = "client".into();
+        assert!(authenticated_peer_role_allowed(
+            &layout,
+            quic_transport::PeerRole::Controller
+        ));
+        assert!(!authenticated_peer_role_allowed(
+            &layout,
+            quic_transport::PeerRole::Receiver
+        ));
+        layout.machine_role = "server".into();
+        assert!(authenticated_peer_role_allowed(
+            &layout,
+            quic_transport::PeerRole::Receiver
+        ));
     }
 }

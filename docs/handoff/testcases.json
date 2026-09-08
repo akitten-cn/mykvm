@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "all_statuses_are_initial": true,
+  "all_statuses_are_initial": false,
   "policy": "LOL and physical Windows tests are optional and never a hard development/merge/package gate.",
   "tests": [
     {
@@ -115,7 +115,8 @@
       "method": "伪造设备名/IP 发送输入",
       "expected": "未生成 AuthenticatedPeer；注入调用为零",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T05-auth-audit.md", "quic_transport::tests::untrusted_loopback_connection_never_reaches_datagram_handler"]
     },
     {
       "id": "A11",
@@ -124,7 +125,8 @@
       "method": "地址相同但配对证书/凭据变化",
       "expected": "拒绝旧信任，要求重新授权",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T05-auth-audit.md", "quic_transport::tests::trust_store_rejects_unknown_or_rotated_certificate"]
     },
     {
       "id": "A12",
@@ -133,7 +135,8 @@
       "method": "复制 peer_id 到另一连接/错误角色",
       "expected": "不能借用其他连接的授权上下文",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T05-auth-audit.md", "quic_transport::tests::loopback_transport_binds_presented_certificate_to_connection_context", "tests::authenticated_roles_follow_machine_direction"]
     },
     {
       "id": "A13",

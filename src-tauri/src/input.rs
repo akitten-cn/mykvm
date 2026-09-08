@@ -6066,6 +6066,7 @@ mod tests {
             cluster_id: "cluster-test".into(),
             pair_secret: "secret-test".into(),
             paired_controllers: Vec::new(),
+            trusted_peers: Vec::new(),
             clipboard_sync: false,
             file_transfer_enabled: true,
             language: "cn".into(),
@@ -6554,7 +6555,7 @@ mod tests {
     #[test]
     fn hotkey_return_uses_recorded_point_then_local_screen_center() {
         let active = crossing_target(&[target_for_coordinate_tests()], 1919.0, 500.0, 40.0, 0.0)
-        .expect("target should be active");
+            .expect("target should be active");
 
         assert_eq!(
             local_hotkey_return_point(&active, Some((321.0, 654.0))),

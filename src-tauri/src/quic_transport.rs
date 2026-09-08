@@ -3,7 +3,10 @@ use std::{
     fs,
     net::{SocketAddr, ToSocketAddrs},
     path::{Path, PathBuf},
-    sync::{mpsc, Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc, Arc, Mutex, RwLock,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -18,6 +21,7 @@ use quinn::{
             WebPkiSupportedAlgorithms,
         },
         pki_types::{CertificateDer, PrivatePkcs8KeyDer, ServerName, UnixTime},
+        server::danger::{ClientCertVerified, ClientCertVerifier},
         DigitallySignedStruct, SignatureScheme,
     },
     ClientConfig, Endpoint, ServerConfig,
@@ -44,8 +48,112 @@ const MAX_HEALTH_PEERS: usize = 64;
 // in-flight count so a burst cannot spawn unbounded copies of a 48MB write.
 const MAX_CONCURRENT_STREAMS: usize = 8;
 
-type DatagramHandler = Arc<dyn Fn(Vec<u8>, SocketAddr) + Send + Sync + 'static>;
-type StreamHandler = Arc<dyn Fn(Vec<u8>, SocketAddr) -> bool + Send + Sync + 'static>;
+const ALPN_V2: &[u8] = b"mykvm-local/2";
+
+type DatagramHandler = Arc<dyn Fn(Vec<u8>, AuthenticatedPeer) + Send + Sync + 'static>;
+type StreamHandler = Arc<dyn Fn(Vec<u8>, ConnectionPeer) -> bool + Send + Sync + 'static>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PeerRole {
+    Controller,
+    Receiver,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrustedPeer {
+    pub peer_id: String,
+    pub certificate: String,
+    pub role: PeerRole,
+    pub trust_revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthenticatedPeer {
+    pub peer_id: String,
+    pub role: PeerRole,
+    pub trust_revision: u64,
+    pub connection_generation: u64,
+    pub remote_addr: SocketAddr,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConnectionPeer {
+    Authenticated(AuthenticatedPeer),
+    Unauthenticated {
+        remote_addr: SocketAddr,
+        connection_generation: u64,
+        presented_certificate: Option<String>,
+    },
+}
+
+#[derive(Clone, Default)]
+pub struct TrustedPeerRegistry(Arc<RwLock<Vec<DecodedTrustedPeer>>>);
+
+#[derive(Clone, Debug)]
+struct DecodedTrustedPeer {
+    peer_id: String,
+    certificate: Vec<u8>,
+    role: PeerRole,
+    trust_revision: u64,
+}
+
+impl TrustedPeerRegistry {
+    pub fn new(peers: Vec<TrustedPeer>) -> Result<Self, String> {
+        let registry = Self::default();
+        registry.replace(peers)?;
+        Ok(registry)
+    }
+
+    pub fn replace(&self, peers: Vec<TrustedPeer>) -> Result<(), String> {
+        let mut decoded = Vec::with_capacity(peers.len());
+        for peer in peers {
+            if peer.peer_id.trim().is_empty() || peer.trust_revision == 0 {
+                return Err("trusted peer requires a non-empty id and revision".into());
+            }
+            let certificate = BASE64
+                .decode(peer.certificate.as_bytes())
+                .map_err(|error| {
+                    format!("invalid trusted certificate for {}: {error}", peer.peer_id)
+                })?;
+            if certificate.is_empty() {
+                return Err(format!("trusted certificate for {} is empty", peer.peer_id));
+            }
+            if decoded.iter().any(|existing: &DecodedTrustedPeer| {
+                existing.peer_id == peer.peer_id || existing.certificate == certificate
+            }) {
+                return Err("trusted peer ids and certificates must be unique".into());
+            }
+            decoded.push(DecodedTrustedPeer {
+                peer_id: peer.peer_id,
+                certificate,
+                role: peer.role,
+                trust_revision: peer.trust_revision,
+            });
+        }
+        *self
+            .0
+            .write()
+            .map_err(|_| "trust store lock poisoned".to_string())? = decoded;
+        Ok(())
+    }
+
+    fn authenticate(
+        &self,
+        certificate: &[u8],
+        remote_addr: SocketAddr,
+        connection_generation: u64,
+    ) -> Option<AuthenticatedPeer> {
+        let peers = self.0.read().ok()?;
+        let peer = peers.iter().find(|peer| peer.certificate == certificate)?;
+        Some(AuthenticatedPeer {
+            peer_id: peer.peer_id.clone(),
+            role: peer.role,
+            trust_revision: peer.trust_revision,
+            connection_generation,
+            remote_addr,
+        })
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct PeerEndpoint {
@@ -126,6 +234,7 @@ pub struct TransportHandle {
     port: u16,
     public_key: String,
     peer_health: HealthMap,
+    trust_store: TrustedPeerRegistry,
 }
 
 impl TransportHandle {
@@ -200,6 +309,10 @@ impl TransportHandle {
     pub fn shutdown(&self) {
         let _ = self.commands.send(TransportCommand::Shutdown);
     }
+
+    pub fn replace_trusted_peers(&self, peers: Vec<TrustedPeer>) -> Result<(), String> {
+        self.trust_store.replace(peers)
+    }
 }
 
 enum TransportCommand {
@@ -224,6 +337,7 @@ struct PeerKey {
 pub fn start(
     preferred_port: u16,
     identity_dir: PathBuf,
+    trust_store: TrustedPeerRegistry,
     on_datagram: DatagramHandler,
     on_stream: StreamHandler,
 ) -> Result<TransportHandle, String> {
@@ -236,6 +350,7 @@ pub fn start(
     let (command_tx, command_rx) = tokio_mpsc::unbounded_channel();
     let peer_health: HealthMap = Arc::new(Mutex::new(HashMap::new()));
     let loop_health = Arc::clone(&peer_health);
+    let loop_trust_store = trust_store.clone();
 
     thread::Builder::new()
         .name("mykvm-quic-transport".into())
@@ -256,6 +371,7 @@ pub fn start(
             runtime.block_on(run_transport(
                 preferred_port,
                 identity,
+                loop_trust_store,
                 command_rx,
                 on_datagram,
                 on_stream,
@@ -274,6 +390,7 @@ pub fn start(
         port: ready.port,
         public_key: ready.public_key,
         peer_health,
+        trust_store,
     })
 }
 
@@ -294,6 +411,7 @@ type ConnectionMap = Arc<Mutex<HashMap<PeerKey, ConnectionSlot>>>;
 async fn run_transport(
     preferred_port: u16,
     identity: TransportIdentity,
+    trust_store: TrustedPeerRegistry,
     mut commands: tokio_mpsc::UnboundedReceiver<TransportCommand>,
     on_datagram: DatagramHandler,
     on_stream: StreamHandler,
@@ -317,7 +435,7 @@ async fn run_transport(
     };
 
     let _ = ready_tx.send(Ok(ReadyTransport { port, public_key }));
-    spawn_accept_loop(endpoint.clone(), on_datagram, on_stream);
+    spawn_accept_loop(endpoint.clone(), trust_store, on_datagram, on_stream);
 
     // The command loop must never await network progress: one dead peer's 2s
     // connect timeout or one 48MB stream write would stall every queued input
@@ -329,7 +447,14 @@ async fn run_transport(
     while let Some(command) = commands.recv().await {
         match command {
             TransportCommand::SendDatagram { peer, payload } => {
-                send_datagram_nonblocking(&endpoint, &connections, &health, peer, payload);
+                send_datagram_nonblocking(
+                    &endpoint,
+                    &identity,
+                    &connections,
+                    &health,
+                    peer,
+                    payload,
+                );
             }
             TransportCommand::SendStream {
                 peer,
@@ -345,9 +470,17 @@ async fn run_transport(
                 let endpoint = endpoint.clone();
                 let connections = Arc::clone(&connections);
                 let health = Arc::clone(&health);
+                let identity = identity.clone();
                 tokio::spawn(async move {
-                    let outcome =
-                        send_stream_task(&endpoint, &connections, &health, peer, payload).await;
+                    let outcome = send_stream_task(
+                        &endpoint,
+                        &identity,
+                        &connections,
+                        &health,
+                        peer,
+                        payload,
+                    )
+                    .await;
                     if let Err(error) = &outcome {
                         log::warn!("QUIC stream send failed: {error}");
                     }
@@ -491,11 +624,79 @@ fn candidate_ports(preferred_port: u16) -> Vec<u16> {
     ports
 }
 
+#[derive(Debug)]
+struct PresentedClientCertVerifier {
+    supported: WebPkiSupportedAlgorithms,
+}
+
+impl PresentedClientCertVerifier {
+    fn new() -> Self {
+        Self {
+            supported: default_provider().signature_verification_algorithms,
+        }
+    }
+}
+
+impl ClientCertVerifier for PresentedClientCertVerifier {
+    fn root_hint_subjects(&self) -> &[rustls::DistinguishedName] {
+        &[]
+    }
+
+    fn verify_client_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _now: UnixTime,
+    ) -> Result<ClientCertVerified, rustls::Error> {
+        if end_entity.is_empty() {
+            return Err(rustls::Error::General("empty client certificate".into()));
+        }
+        // This verifies presentation only. The TLS CertificateVerify signature
+        // is checked below; application authorization is an exact match in the
+        // persisted TrustStore after the connection is established.
+        Ok(ClientCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls12_signature(message, cert, dss, &self.supported)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls13_signature(message, cert, dss, &self.supported)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.supported.supported_schemes()
+    }
+
+    fn client_auth_mandatory(&self) -> bool {
+        false
+    }
+}
+
 fn server_config(identity: &TransportIdentity) -> Result<ServerConfig, String> {
     let cert_der = CertificateDer::from(identity.cert_der.clone());
     let key_der = PrivatePkcs8KeyDer::from(identity.key_der.clone());
-    let mut config = ServerConfig::with_single_cert(vec![cert_der], key_der.into())
+    let mut crypto = rustls::ServerConfig::builder_with_provider(Arc::new(default_provider()))
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .map_err(|error| format!("failed to build QUIC server crypto: {error}"))?
+        .with_client_cert_verifier(Arc::new(PresentedClientCertVerifier::new()))
+        .with_single_cert(vec![cert_der], key_der.into())
         .map_err(|error| format!("failed to build QUIC server config: {error}"))?;
+    crypto.alpn_protocols = vec![ALPN_V2.to_vec()];
+    let quic_crypto = quinn::crypto::rustls::QuicServerConfig::try_from(crypto)
+        .map_err(|error| format!("failed to build QUIC server config: {error}"))?;
+    let mut config = ServerConfig::with_crypto(Arc::new(quic_crypto));
     config.transport = Arc::new(tuned_transport_config());
 
     Ok(config)
@@ -590,7 +791,10 @@ impl ServerCertVerifier for PinnedCertVerifier {
     }
 }
 
-fn client_config(peer: &PeerEndpoint) -> Result<ClientConfig, String> {
+fn client_config(
+    peer: &PeerEndpoint,
+    identity: &TransportIdentity,
+) -> Result<ClientConfig, String> {
     if peer.protocol_version != PROTOCOL_VERSION {
         return Err(format!(
             "unsupported peer transport protocol version {}",
@@ -605,12 +809,17 @@ fn client_config(peer: &PeerEndpoint) -> Result<ClientConfig, String> {
 
     // QUIC is TLS 1.3 only; pin the advertised certificate with our own verifier
     // rather than WebPKI root validation.
-    let crypto = rustls::ClientConfig::builder_with_provider(Arc::new(default_provider()))
+    let mut crypto = rustls::ClientConfig::builder_with_provider(Arc::new(default_provider()))
         .with_protocol_versions(&[&rustls::version::TLS13])
         .map_err(|error| format!("failed to build QUIC client crypto: {error}"))?
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(PinnedCertVerifier::new(pinned)))
-        .with_no_client_auth();
+        .with_client_auth_cert(
+            vec![CertificateDer::from(identity.cert_der.clone())],
+            PrivatePkcs8KeyDer::from(identity.key_der.clone()).into(),
+        )
+        .map_err(|error| format!("failed to configure QUIC client identity: {error}"))?;
+    crypto.alpn_protocols = vec![ALPN_V2.to_vec()];
 
     let quic_crypto = quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
         .map_err(|error| format!("failed to build QUIC client config: {error}"))?;
@@ -619,18 +828,33 @@ fn client_config(peer: &PeerEndpoint) -> Result<ClientConfig, String> {
     Ok(config)
 }
 
-fn spawn_accept_loop(endpoint: Endpoint, on_datagram: DatagramHandler, on_stream: StreamHandler) {
+fn spawn_accept_loop(
+    endpoint: Endpoint,
+    trust_store: TrustedPeerRegistry,
+    on_datagram: DatagramHandler,
+    on_stream: StreamHandler,
+) {
+    let generations = Arc::new(AtomicU64::new(1));
     tokio::spawn(async move {
         while let Some(incoming) = endpoint.accept().await {
             let remote = incoming.remote_address();
             let on_datagram = Arc::clone(&on_datagram);
             let on_stream = Arc::clone(&on_stream);
+            let trust_store = trust_store.clone();
+            let generation = generations.fetch_add(1, Ordering::Relaxed);
 
             tokio::spawn(async move {
                 match incoming.await {
                     Ok(connection) => {
-                        spawn_datagram_reader(connection.clone(), remote, on_datagram);
-                        spawn_stream_reader(connection, remote, on_stream);
+                        let peer = connection_peer(&connection, &trust_store, remote, generation);
+                        if let ConnectionPeer::Authenticated(authenticated) = &peer {
+                            spawn_datagram_reader(
+                                connection.clone(),
+                                authenticated.clone(),
+                                on_datagram,
+                            );
+                        }
+                        spawn_stream_reader(connection, peer, on_stream);
                     }
                     Err(error) => {
                         log::warn!("QUIC incoming connection failed from {remote}: {error}");
@@ -643,15 +867,18 @@ fn spawn_accept_loop(endpoint: Endpoint, on_datagram: DatagramHandler, on_stream
 
 fn spawn_datagram_reader(
     connection: quinn::Connection,
-    remote: SocketAddr,
+    peer: AuthenticatedPeer,
     on_datagram: DatagramHandler,
 ) {
     tokio::spawn(async move {
         loop {
             match connection.read_datagram().await {
-                Ok(payload) => on_datagram(payload.to_vec(), remote),
+                Ok(payload) => on_datagram(payload.to_vec(), peer.clone()),
                 Err(error) => {
-                    log::debug!("QUIC datagram reader stopped for {remote}: {error}");
+                    log::debug!(
+                        "QUIC datagram reader stopped for {}: {error}",
+                        peer.remote_addr
+                    );
                     break;
                 }
             }
@@ -659,9 +886,30 @@ fn spawn_datagram_reader(
     });
 }
 
+fn connection_peer(
+    connection: &quinn::Connection,
+    trust_store: &TrustedPeerRegistry,
+    remote_addr: SocketAddr,
+    connection_generation: u64,
+) -> ConnectionPeer {
+    let certificate = connection
+        .peer_identity()
+        .and_then(|identity| identity.downcast::<Vec<CertificateDer<'static>>>().ok())
+        .and_then(|chain| chain.first().map(|cert| cert.as_ref().to_vec()));
+    let authenticated = certificate
+        .as_deref()
+        .and_then(|cert| trust_store.authenticate(cert, remote_addr, connection_generation))
+        .map(ConnectionPeer::Authenticated);
+    authenticated.unwrap_or(ConnectionPeer::Unauthenticated {
+        remote_addr,
+        connection_generation,
+        presented_certificate: certificate.map(|cert| BASE64.encode(cert)),
+    })
+}
+
 fn spawn_stream_reader(
     connection: quinn::Connection,
-    remote: SocketAddr,
+    peer: ConnectionPeer,
     on_stream: StreamHandler,
 ) {
     tokio::spawn(async move {
@@ -669,22 +917,33 @@ fn spawn_stream_reader(
             match connection.accept_bi().await {
                 Ok((mut send, mut recv)) => {
                     let on_stream = Arc::clone(&on_stream);
+                    let peer = peer.clone();
+                    let connection = connection.clone();
                     tokio::spawn(async move {
                         match recv.read_to_end(MAX_STREAM_BYTES).await {
                             Ok(payload) => {
-                                let accepted = on_stream(payload, remote);
+                                let was_unauthenticated =
+                                    matches!(peer, ConnectionPeer::Unauthenticated { .. });
+                                let accepted = on_stream(payload, peer);
                                 let ack: &[u8] = if accepted { b"ok" } else { b"reject" };
                                 let _ = send.write_all(ack).await;
                                 let _ = send.finish();
+                                if accepted && was_unauthenticated {
+                                    // A successful unauthenticated stream can only be the
+                                    // bounded manual pairing exchange. Force a new TLS
+                                    // connection so the newly persisted certificate is
+                                    // evaluated and bound before any data channel is opened.
+                                    connection.close(0_u32.into(), b"pairing-complete");
+                                }
                             }
                             Err(error) => {
-                                log::warn!("QUIC stream read failed from {remote}: {error}");
+                                log::warn!("QUIC stream read failed: {error}");
                             }
                         }
                     });
                 }
                 Err(error) => {
-                    log::debug!("QUIC stream reader stopped for {remote}: {error}");
+                    log::debug!("QUIC stream reader stopped: {error}");
                     break;
                 }
             }
@@ -699,6 +958,7 @@ fn spawn_stream_reader(
 /// `warm_quic_peer` keeps connections pre-established outside crossings.
 fn send_datagram_nonblocking(
     endpoint: &Endpoint,
+    identity: &TransportIdentity,
     connections: &ConnectionMap,
     health: &HealthMap,
     peer: PeerEndpoint,
@@ -753,8 +1013,9 @@ fn send_datagram_nonblocking(
     let endpoint = endpoint.clone();
     let connections = Arc::clone(connections);
     let health = Arc::clone(health);
+    let identity = identity.clone();
     tokio::spawn(async move {
-        match establish_connection(&endpoint, &peer, &key).await {
+        match establish_connection(&endpoint, &identity, &peer, &key).await {
             Ok(connection) => {
                 if let Ok(mut map) = connections.lock() {
                     map.insert(key, ConnectionSlot::Ready(connection));
@@ -776,6 +1037,7 @@ fn send_datagram_nonblocking(
 /// connection that is dropped on replacement — streams are rare).
 async fn send_stream_task(
     endpoint: &Endpoint,
+    identity: &TransportIdentity,
     connections: &ConnectionMap,
     health: &HealthMap,
     peer: PeerEndpoint,
@@ -795,7 +1057,7 @@ async fn send_stream_task(
     };
     let connection = match existing {
         Some(connection) => connection,
-        None => match establish_connection(endpoint, &peer, &key).await {
+        None => match establish_connection(endpoint, identity, &peer, &key).await {
             Ok(connection) => {
                 if let Ok(mut map) = connections.lock() {
                     map.insert(key.clone(), ConnectionSlot::Ready(connection.clone()));
@@ -852,10 +1114,11 @@ fn verify_stream_ack(bytes: &[u8]) -> Result<(), String> {
 
 async fn establish_connection(
     endpoint: &Endpoint,
+    identity: &TransportIdentity,
     peer: &PeerEndpoint,
     key: &PeerKey,
 ) -> Result<quinn::Connection, String> {
-    let config = client_config(peer)?;
+    let config = client_config(peer, identity)?;
     let connecting = endpoint
         .connect_with(config, key.addr, SERVER_NAME)
         .map_err(|error| format!("failed to start QUIC connection to {}: {error}", key.addr))?;
@@ -920,6 +1183,16 @@ mod tests {
             .clone()
     }
 
+    fn make_identity() -> TransportIdentity {
+        let generated = rcgen::generate_simple_self_signed(vec![SERVER_NAME.to_string()]).unwrap();
+        let cert_der = generated.cert.der().to_vec();
+        TransportIdentity {
+            public_key: BASE64.encode(&cert_der),
+            cert_der,
+            key_der: generated.key_pair.serialize_der(),
+        }
+    }
+
     #[test]
     fn pinned_verifier_accepts_matching_cert_and_rejects_others() {
         let pinned = make_cert();
@@ -949,7 +1222,7 @@ mod tests {
             public_key: BASE64.encode(make_cert().as_ref()),
             protocol_version: PROTOCOL_VERSION,
         };
-        assert!(client_config(&peer).is_ok());
+        assert!(client_config(&peer, &make_identity()).is_ok());
     }
 
     #[test]
@@ -959,7 +1232,69 @@ mod tests {
             public_key: BASE64.encode(make_cert().as_ref()),
             protocol_version: PROTOCOL_VERSION + 1,
         };
-        assert!(client_config(&peer).is_err());
+        assert!(client_config(&peer, &make_identity()).is_err());
+    }
+
+    #[test]
+    fn trust_store_authenticates_exact_certificate_and_binds_context() {
+        let identity = make_identity();
+        let store = TrustedPeerRegistry::default();
+        store
+            .replace(vec![TrustedPeer {
+                peer_id: "controller-a".into(),
+                certificate: identity.public_key.clone(),
+                role: PeerRole::Controller,
+                trust_revision: 7,
+            }])
+            .unwrap();
+        let address = "10.0.0.2:47834".parse().unwrap();
+        let authenticated = store
+            .authenticate(&identity.cert_der, address, 19)
+            .expect("trusted certificate");
+        assert_eq!(authenticated.peer_id, "controller-a");
+        assert_eq!(authenticated.role, PeerRole::Controller);
+        assert_eq!(authenticated.trust_revision, 7);
+        assert_eq!(authenticated.connection_generation, 19);
+        assert_eq!(authenticated.remote_addr, address);
+    }
+
+    #[test]
+    fn trust_store_rejects_unknown_or_rotated_certificate() {
+        let trusted = make_identity();
+        let rotated = make_identity();
+        let store = TrustedPeerRegistry::default();
+        store
+            .replace(vec![TrustedPeer {
+                peer_id: "controller-a".into(),
+                certificate: trusted.public_key,
+                role: PeerRole::Controller,
+                trust_revision: 1,
+            }])
+            .unwrap();
+        assert!(store
+            .authenticate(&rotated.cert_der, "10.0.0.2:47834".parse().unwrap(), 1)
+            .is_none());
+    }
+
+    #[test]
+    fn trust_store_rejects_duplicate_identity_or_certificate() {
+        let identity = make_identity();
+        let store = TrustedPeerRegistry::default();
+        let duplicate = vec![
+            TrustedPeer {
+                peer_id: "peer-a".into(),
+                certificate: identity.public_key.clone(),
+                role: PeerRole::Controller,
+                trust_revision: 1,
+            },
+            TrustedPeer {
+                peer_id: "peer-b".into(),
+                certificate: identity.public_key,
+                role: PeerRole::Receiver,
+                trust_revision: 2,
+            },
+        ];
+        assert!(store.replace(duplicate).is_err());
     }
 
     #[test]
@@ -1003,5 +1338,137 @@ mod tests {
         assert!(!first.public_key.is_empty());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn loopback_transport_binds_presented_certificate_to_connection_context() {
+        let suffix = format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(format!("mykvm-auth-loopback-{suffix}"));
+        let controller_dir = root.join("controller");
+        let receiver_dir = root.join("receiver");
+        let controller_identity = load_or_create_identity(&controller_dir).unwrap();
+        let receiver_identity = load_or_create_identity(&receiver_dir).unwrap();
+        let (seen_tx, seen_rx) = mpsc::channel();
+        let receiver_port = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let controller_port = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+
+        let receiver = start(
+            receiver_port,
+            receiver_dir,
+            TrustedPeerRegistry::new(vec![TrustedPeer {
+                peer_id: "controller-a".into(),
+                certificate: controller_identity.public_key.clone(),
+                role: PeerRole::Controller,
+                trust_revision: 4,
+            }])
+            .unwrap(),
+            Arc::new(|_, _| {}),
+            Arc::new(move |payload, peer| {
+                let _ = seen_tx.send((payload, peer));
+                true
+            }),
+        )
+        .unwrap();
+        let controller = start(
+            controller_port,
+            controller_dir,
+            TrustedPeerRegistry::new(vec![TrustedPeer {
+                peer_id: "receiver-a".into(),
+                certificate: receiver_identity.public_key.clone(),
+                role: PeerRole::Receiver,
+                trust_revision: 2,
+            }])
+            .unwrap(),
+            Arc::new(|_, _| {}),
+            Arc::new(|_, _| false),
+        )
+        .unwrap();
+
+        let peer = controller.peer(
+            format!("127.0.0.1:{}", receiver.port()),
+            receiver.public_key().into(),
+            PROTOCOL_VERSION,
+        );
+        controller
+            .send_stream_expect_ack(peer, b"authenticated".to_vec())
+            .unwrap();
+        let (payload, peer) = seen_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(payload, b"authenticated");
+        let ConnectionPeer::Authenticated(peer) = peer else {
+            panic!("trusted client certificate was not bound to the connection")
+        };
+        assert_eq!(peer.peer_id, "controller-a");
+        assert_eq!(peer.role, PeerRole::Controller);
+        assert_eq!(peer.trust_revision, 4);
+        assert!(peer.connection_generation > 0);
+
+        controller.shutdown();
+        receiver.shutdown();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn untrusted_loopback_connection_never_reaches_datagram_handler() {
+        let suffix = format!("{}-untrusted", std::process::id());
+        let root = std::env::temp_dir().join(format!("mykvm-auth-loopback-{suffix}"));
+        let controller_dir = root.join("controller");
+        let receiver_dir = root.join("receiver");
+        let receiver_identity = load_or_create_identity(&receiver_dir).unwrap();
+        let port = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let (datagram_tx, datagram_rx) = mpsc::channel();
+        let receiver = start(
+            port,
+            receiver_dir,
+            TrustedPeerRegistry::default(),
+            Arc::new(move |_, _| {
+                let _ = datagram_tx.send(());
+            }),
+            Arc::new(|_, _| false),
+        )
+        .unwrap();
+        let controller = start(
+            port.saturating_add(64),
+            controller_dir,
+            TrustedPeerRegistry::default(),
+            Arc::new(|_, _| {}),
+            Arc::new(|_, _| false),
+        )
+        .unwrap();
+        let peer = controller.peer(
+            format!("127.0.0.1:{}", receiver.port()),
+            receiver_identity.public_key,
+            PROTOCOL_VERSION,
+        );
+        for _ in 0..8 {
+            controller
+                .send_datagram(peer.clone(), b"input".to_vec())
+                .unwrap();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(datagram_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err());
+        controller.shutdown();
+        receiver.shutdown();
+        let _ = fs::remove_dir_all(root);
     }
 }
