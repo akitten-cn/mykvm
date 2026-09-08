@@ -40,10 +40,11 @@
 |T19|完成|test-only 双身份真实 QUIC 回环；FakeInjector 覆盖可靠输入、motion 乱序、旧 session、断流释放和租约释放|
 |T20|完成|225 个 Rust 测试、22 个隔离测试及前端/Mac 库检查通过；线程、锁、预算、授权、释放和配置迁移审查完成；严格全仓 fmt/clippy 基线债务留档|
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
+|T22|完成|真实 ARM64 app 与 DMG 已生成并校验；无 Developer ID/公证，未安装或启动|
 
 T08.c 最后实现 SHA：`5d8bdb104139738bb7f7c9cfece3391019fe41d1`。提交后完整检查通过：191 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查，证据日志为本地 `.local-evidence/t08-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
 
-平台证据独立记录：Mac 库编译及前端构建通过；Mac 应用打包和运行未执行；Windows 构建 pending_environment；Windows/LOL 实机 optional_not_run。T20 最终实现 SHA 为 `6effc789ff0ccac45470af0494d353f651dc4bf9`，完整适用回归日志为 `.local-evidence/t20-postcommit-final.log`。没有安装包、公开 fork、推送或发布。
+平台证据独立记录：Mac 库编译、前端构建及 ARM64 app/dmg 打包通过；Mac 应用运行未执行；Windows 构建 pending_environment；Windows/LOL 实机 optional_not_run。T20 最终实现 SHA 为 `6effc789ff0ccac45470af0494d353f651dc4bf9`，完整适用回归日志为 `.local-evidence/t20-postcommit-final.log`。Mac 预览构建 SHA 为 `7ac6d87cc26ae17a4a465c05435230e182075fb0`。没有安装、公开 fork、推送或发布。
 
 T09 当前实现 SHA：`9aed9a81aa928ad67ba2bf298d49b63027b44dd6`。提交后检查通过：198 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和相关格式检查，证据日志为本地 `.local-evidence/t09c-postcommit.log`。
 

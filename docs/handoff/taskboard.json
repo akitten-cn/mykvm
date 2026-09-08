@@ -1422,17 +1422,22 @@
       "review_focus": [
         "未生成不得伪造链接；ad hoc签名不是Developer ID公证"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../T22-mac-preview.md",
+        "../PREVIEW_ARTIFACTS.sha256",
+        "implementation SHA 7ac6d87cc26ae17a4a465c05435230e182075fb0",
+        ".local-evidence/t22-mac-bundle-final.log"
+      ],
       "blocked_reason": null
     },
     {

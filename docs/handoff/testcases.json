@@ -536,12 +536,14 @@
       "method": "原生 M4 执行 lint/build/cargo test 和 app 构建",
       "expected": "保存退出码、完整 SHA、产物架构和真实路径",
       "blocking_development": false,
-      "status": "not_run",
-      "partial_evidence": [
+      "status": "pass",
+      "evidence": [
         "../SOURCE_AUDIT.md",
-        "../T21-native-checks.md"
-      ],
-      "remaining": "Mac lib check/test and web build passed; app bundle not generated."
+        "../T21-native-checks.md",
+        "../T22-mac-preview.md",
+        "../PREVIEW_ARTIFACTS.sha256",
+        ".local-evidence/t22-mac-bundle-final.log"
+      ]
     },
     {
       "id": "M02",

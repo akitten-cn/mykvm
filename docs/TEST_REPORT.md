@@ -31,6 +31,10 @@
 
 严格全仓 fmt 退出码 1，严格 clippy 退出码 101（99 项），分别保存在 `.local-evidence/t20-full-fmt.log` 和 `.local-evidence/t20-strict-clippy.log`。这些仍是 T01 同类的仓库基线债务；本轮发现的图片选项求值和端口溢出诊断已修复。Mac app/dmg 留给 T22，Windows build 为 `pending_environment`，所有实机项保持未运行。
 
+## T22 Mac ARM64 打包
+
+SHA `7ac6d87cc26ae17a4a465c05435230e182075fb0` 的 `scripts/build-mac-arm.sh` 退出码 0，生成约 17 MiB 的 ARM64 app 与约 6.6 MiB 的 UDZO DMG。`file` 确认主程序为 Mach-O arm64，`hdiutil verify` 确认 DMG 校验有效，M01 更新为 pass。构建使用 `--no-sign`；app 没有完整 bundle 签名或公证，严格 codesign 校验失败并按实际状态记录。未挂载、安装或运行产物。
+
 纯核心通过不等于 A01–A04 等端到端用例通过；这些用例保留 not_run 并记录部分证据。认证正反测试、协议回环、真实 Windows 分支编译、可靠释放集成、资源数据均尚未完成。详见 taskboard、testcases 和 SOURCE_AUDIT。
 
 ## T05.b 连接授权增量
