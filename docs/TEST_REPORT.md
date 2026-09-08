@@ -90,3 +90,9 @@ QUIC input stream 无论正常 EOF、解码失败还是 handler 拒绝都会调�
 提交后以实现 SHA `47171b1812e1ea9af6ea70896d9ee9ba30437231` 再次运行同一整套检查，8 个步骤均为退出码 0，日志为本地 `.local-evidence/t04b3b1-postcommit.log`。
 
 这些测试不启动应用、网络或系统输入。Windows hook 和 QUIC control/input handle 尚未接入，Windows 构建仍为 pending_environment，不能据此宣称产品可用。
+
+## T04.b3.b2a controller client 增量
+
+新增 64 帧有界入站 control 队列和生产 `QuicControllerTransport`，将认证 Receiver peer 的 control/input handle 生命周期交给单一 `ControllerClient`。QUIC 回调只做非阻塞投递；溢出、协议错误或任一发送队列失败会先请求本地恢复再断开。
+
+3 项 FakeControllerTransport 测试通过，覆盖门控握手到可靠 input、input 队列失败后的本地恢复，以及重复 begin 不替换握手中连接。提交前整套检查通过 175 个 Rust 库测试及其余 7 个步骤，日志为本地 `.local-evidence/t04b3b2a-native.log`。提交 SHA 和提交后复核待补记。Windows 平台接线尚未实现，状态不变。

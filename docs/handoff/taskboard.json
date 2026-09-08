@@ -234,7 +234,8 @@
         "../T04b1-session-adapter.md",
         "../T04b2-app-runtime.md",
         "../T04b3a-controller-handshake.md",
-        "../T04b3b1-controller-runtime.md"
+        "../T04b3b1-controller-runtime.md",
+        "../T04b3b2a-controller-client.md"
       ],
       "blocked_reason": null,
       "subtasks": [
@@ -317,8 +318,26 @@
             {
               "id": "T04.b3.b2",
               "title": "QUIC control/input handle 与 Windows 捕获生产接线",
-              "implementation": "todo",
-              "review": "pending"
+              "implementation": "in_progress",
+              "review": "pending",
+              "subtasks": [
+                {
+                  "id": "T04.b3.b2a",
+                  "title": "有界控制端客户端与 QUIC transport adapter",
+                  "implementation": "done",
+                  "review": "approved",
+                  "verification": {
+                    "automated": "pass",
+                    "scope": "3 FakeControllerTransport tests; production QUIC handle adapter compiles on Mac, with no network or desktop use."
+                  }
+                },
+                {
+                  "id": "T04.b3.b2b",
+                  "title": "Windows hook/捕获线程接线",
+                  "implementation": "todo",
+                  "review": "pending"
+                }
+              ]
             }
           ]
         }

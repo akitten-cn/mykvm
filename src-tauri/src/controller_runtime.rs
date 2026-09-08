@@ -4,7 +4,7 @@ use crate::{
         BootId, ControlFrame, ControllerHandshake, CriticalEvent, CriticalFrame, ProtocolError,
         SessionId,
     },
-    routing::{LocalOverride, ReturnReason, RouteEffect, RouteError, Router},
+    routing::{LocalOverride, ReturnReason, RouteEffect, RouteError, RouteState, Router},
 };
 use std::sync::Arc;
 
@@ -44,6 +44,13 @@ impl ControllerRuntime {
 
     pub fn local_override(&self) -> Arc<LocalOverride> {
         self.router.local_override()
+    }
+
+    pub fn can_begin(&self) -> bool {
+        matches!(
+            self.router.state(),
+            RouteState::LocalDesktop | RouteState::LocalGame
+        )
     }
 
     pub fn set_game_mode(&mut self, enabled: bool) {
