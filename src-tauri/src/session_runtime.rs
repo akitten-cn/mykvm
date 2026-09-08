@@ -25,6 +25,7 @@ pub enum SessionFault {
     ReleaseFailed(PortError),
     LeaseExpired,
     InputStreamClosed,
+    LayoutChanged,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +42,63 @@ pub enum MotionDisposition {
     Stale,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReceiverDisplayLayout {
+    pub display_id: String,
+    pub layout_revision: u64,
+    pub logical_width: i32,
+    pub logical_height: i32,
+    pub native_x: i32,
+    pub native_y: i32,
+    pub native_width: i32,
+    pub native_height: i32,
+}
+
+impl ReceiverDisplayLayout {
+    fn map(&self, x: i32, y: i32) -> Result<(i32, i32), ProtocolError> {
+        if self.layout_revision == 0
+            || self.logical_width <= 0
+            || self.logical_height <= 0
+            || self.native_width <= 0
+            || self.native_height <= 0
+            || x < 0
+            || y < 0
+            || x >= self.logical_width
+            || y >= self.logical_height
+        {
+            return Err(ProtocolError::InvalidField("coordinates"));
+        }
+        Ok((
+            map_axis(x, self.logical_width, self.native_x, self.native_width),
+            map_axis(y, self.logical_height, self.native_y, self.native_height),
+        ))
+    }
+}
+
+fn map_axis(value: i32, logical_size: i32, native_origin: i32, native_size: i32) -> i32 {
+    if logical_size <= 1 || native_size <= 1 {
+        return native_origin;
+    }
+    let offset = i64::from(value) * i64::from(native_size - 1) / i64::from(logical_size - 1);
+    i32::try_from(i64::from(native_origin) + offset).unwrap_or(i32::MAX)
+}
+
+pub fn display_layout_revision(display_id: &str, width: i32, height: i32, scale_bits: u64) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in display_id
+        .as_bytes()
+        .iter()
+        .copied()
+        .chain(width.to_le_bytes())
+        .chain(height.to_le_bytes())
+        .chain(scale_bits.to_le_bytes())
+    {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    hash.max(1)
+}
+
 pub fn receiver_mode_enabled(machine_role: &str, input_mode: &str) -> bool {
     machine_role == "client" && input_mode == "receive"
 }
@@ -54,6 +112,9 @@ pub struct ReceiverSessionRuntime<I> {
     highest_applied_sequence: u64,
     highest_motion_sequence: u64,
     pending_motion: Option<MotionFrame>,
+    display_layouts: Vec<ReceiverDisplayLayout>,
+    prepared_display: Option<ReceiverDisplayLayout>,
+    active_display: Option<ReceiverDisplayLayout>,
     last_activity_ms: Option<u64>,
     last_fault: Option<SessionFault>,
     pressed: PressedState,
@@ -61,7 +122,29 @@ pub struct ReceiverSessionRuntime<I> {
 }
 
 impl<I: InjectorPort> ReceiverSessionRuntime<I> {
+    #[cfg(test)]
     pub fn new(local_boot: BootId, injector: I) -> Self {
+        Self::new_with_display_layouts(
+            local_boot,
+            injector,
+            vec![ReceiverDisplayLayout {
+                display_id: "mac-main".into(),
+                layout_revision: 1,
+                logical_width: 1920,
+                logical_height: 1080,
+                native_x: 0,
+                native_y: 0,
+                native_width: 1920,
+                native_height: 1080,
+            }],
+        )
+    }
+
+    pub fn new_with_display_layouts(
+        local_boot: BootId,
+        injector: I,
+        display_layouts: Vec<ReceiverDisplayLayout>,
+    ) -> Self {
         Self {
             local_boot,
             binding: None,
@@ -71,6 +154,9 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
             highest_applied_sequence: 0,
             highest_motion_sequence: 0,
             pending_motion: None,
+            display_layouts,
+            prepared_display: None,
+            active_display: None,
             last_activity_ms: None,
             last_fault: None,
             pressed: PressedState::default(),
@@ -118,6 +204,8 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
             self.handshake = Some(handshake);
             self.highest_applied_sequence = 0;
             self.reset_motion();
+            self.prepared_display = None;
+            self.active_display = None;
             self.last_activity_ms = None;
             return Ok(response);
         }
@@ -125,10 +213,36 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
         if self.binding.as_ref() != Some(peer) {
             return Err(SessionRuntimeError::WrongConnection);
         }
-        if matches!(frame, ControlFrame::Prepare { .. }) {
+        if self.active_session.is_none()
+            && matches!(frame, ControlFrame::Commit { .. })
+            && self.prepared_display.is_none()
+        {
+            return Err(SessionRuntimeError::Protocol(ProtocolError::InvalidField(
+                "layout_revision",
+            )));
+        }
+        if let ControlFrame::Prepare {
+            target_display,
+            layout_revision,
+            ..
+        } = frame
+        {
             self.injector
                 .readiness()
                 .map_err(SessionRuntimeError::Injector)?;
+            self.prepared_display = self
+                .display_layouts
+                .iter()
+                .find(|layout| {
+                    layout.display_id == *target_display
+                        && layout.layout_revision == *layout_revision
+                })
+                .cloned();
+            if self.prepared_display.is_none() {
+                return Err(SessionRuntimeError::Protocol(ProtocolError::InvalidField(
+                    "layout_revision",
+                )));
+            }
         }
 
         let handshake = self
@@ -150,6 +264,7 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
                     .activate(*session_id)
                     .map_err(SessionRuntimeError::Protocol)?;
                 self.active_session = Some(*session_id);
+                self.active_display = self.prepared_display.take();
                 self.highest_applied_sequence = 0;
                 self.reset_motion();
                 self.last_activity_ms = Some(now_ms);
@@ -165,6 +280,7 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
                     .end(*session_id)
                     .map_err(SessionRuntimeError::Protocol)?;
                 self.active_session = None;
+                self.active_display = None;
                 self.last_activity_ms = None;
                 self.reset_motion();
             }
@@ -187,6 +303,37 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
             self.last_activity_ms = Some(now_ms);
         }
         Ok(response)
+    }
+
+    pub fn update_display_layouts(
+        &mut self,
+        display_layouts: Vec<ReceiverDisplayLayout>,
+    ) -> Result<bool, SessionRuntimeError> {
+        let active_is_current = self.active_display.as_ref().map_or(true, |active| {
+            display_layouts.iter().any(|layout| layout == active)
+        });
+        let prepared_is_current = self.prepared_display.as_ref().map_or(true, |prepared| {
+            display_layouts.iter().any(|layout| layout == prepared)
+        });
+        self.display_layouts = display_layouts;
+        if !prepared_is_current {
+            self.prepared_display = None;
+        }
+        if active_is_current {
+            return Ok(false);
+        }
+        if let Some(session_id) = self.active_session.take() {
+            let _ = self.input_gate.end(session_id);
+            if let Some(handshake) = self.handshake.as_mut() {
+                let _ = handshake.abort_active(session_id);
+            }
+        }
+        self.active_display = None;
+        self.last_activity_ms = None;
+        self.reset_motion();
+        self.last_fault = Some(SessionFault::LayoutChanged);
+        self.release_pressed()?;
+        Ok(true)
     }
 
     pub fn handle_input(
@@ -212,12 +359,33 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
         }) {
             return Err(SessionRuntimeError::Protocol(ProtocolError::WrongSession));
         }
+        let mut mapped_event = frame.event.clone();
+        if let Some((_, x, y)) = motion_snapshot {
+            let (x, y) = self.map_active_pointer(x, y)?;
+            match &mut mapped_event {
+                crate::protocol_v2::CriticalEvent::Button {
+                    x: event_x,
+                    y: event_y,
+                    ..
+                }
+                | crate::protocol_v2::CriticalEvent::Scroll {
+                    x: event_x,
+                    y: event_y,
+                    ..
+                } => {
+                    *event_x = x;
+                    *event_y = y;
+                }
+                crate::protocol_v2::CriticalEvent::Key { .. } => {}
+            }
+        }
         self.input_gate
             .accept(frame)
             .map_err(SessionRuntimeError::Protocol)?;
         let pressed_before = self.pressed.clone();
         let mut commands = Vec::new();
         if let Some((_, x, y)) = motion_snapshot {
+            let (x, y) = self.map_active_pointer(x, y)?;
             let drag_button = self.pressed.drag_button();
             self.pressed.update_pointer(x, y);
             if matches!(
@@ -227,9 +395,10 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
                 commands.push(InputCommand::MouseMove { x, y, drag_button });
             }
         }
-        commands.extend(self.pressed.apply(&frame.event));
+        commands.extend(self.pressed.apply(&mapped_event));
         if commands.is_empty() {
             if let Some((_, x, y)) = motion_snapshot {
+                let (x, y) = self.map_active_pointer(x, y)?;
                 commands.push(InputCommand::MouseMove {
                     x,
                     y,
@@ -272,6 +441,22 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
         if frame.sequence <= self.highest_motion_sequence {
             return Ok(MotionDisposition::Stale);
         }
+        let active_display = self
+            .active_display
+            .as_ref()
+            .ok_or(SessionRuntimeError::Protocol(ProtocolError::InvalidField(
+                "display_id",
+            )))?;
+        if frame.display_id != active_display.display_id
+            || frame.layout_revision != active_display.layout_revision
+        {
+            return Err(SessionRuntimeError::Protocol(ProtocolError::InvalidField(
+                "layout_revision",
+            )));
+        }
+        active_display
+            .map(frame.x, frame.y)
+            .map_err(SessionRuntimeError::Protocol)?;
         self.last_activity_ms = Some(now_ms);
         if frame.required_reliable_sequence > self.highest_applied_sequence {
             if self
@@ -350,11 +535,12 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
     }
 
     fn apply_motion(&mut self, frame: MotionFrame) -> Result<(), SessionRuntimeError> {
+        let (x, y) = self.map_active_pointer(frame.x, frame.y)?;
         let pressed_before = self.pressed.clone();
-        self.pressed.update_pointer(frame.x, frame.y);
+        self.pressed.update_pointer(x, y);
         let command = InputCommand::MouseMove {
-            x: frame.x,
-            y: frame.y,
+            x,
+            y,
             drag_button: self.pressed.drag_button(),
         };
         if let Err(error) = submit_ready(&mut self.injector, command) {
@@ -368,7 +554,7 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
     }
 
     fn flush_pending_motion(&mut self) -> Result<(), SessionRuntimeError> {
-        let Some(frame) = self.pending_motion else {
+        let Some(frame) = self.pending_motion.clone() else {
             return Ok(());
         };
         if frame.required_reliable_sequence > self.highest_applied_sequence {
@@ -384,6 +570,16 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
     fn reset_motion(&mut self) {
         self.highest_motion_sequence = 0;
         self.pending_motion = None;
+    }
+
+    fn map_active_pointer(&self, x: i32, y: i32) -> Result<(i32, i32), SessionRuntimeError> {
+        self.active_display
+            .as_ref()
+            .ok_or(SessionRuntimeError::Protocol(ProtocolError::InvalidField(
+                "display_id",
+            )))?
+            .map(x, y)
+            .map_err(SessionRuntimeError::Protocol)
     }
 
     fn release_pressed(&mut self) -> Result<(), SessionRuntimeError> {
@@ -491,6 +687,7 @@ mod tests {
                 &ControlFrame::Prepare {
                     request_id: 7,
                     target_display: "mac-main".into(),
+                    layout_revision: 1,
                 },
                 authenticated,
             )
@@ -514,11 +711,96 @@ mod tests {
     fn motion(sequence: u64, required_reliable_sequence: u64, x: i32, y: i32) -> MotionFrame {
         MotionFrame {
             session_id: session(),
+            display_id: "mac-main".into(),
+            layout_revision: 1,
             sequence,
             required_reliable_sequence,
             x,
             y,
         }
+    }
+
+    #[test]
+    fn a29_maps_retina_negative_origin_and_rejects_stale_or_out_of_range_layout() {
+        let authenticated = peer(10);
+        let layout = ReceiverDisplayLayout {
+            display_id: "mac-main".into(),
+            layout_revision: 1,
+            logical_width: 1440,
+            logical_height: 900,
+            native_x: -2560,
+            native_y: -1600,
+            native_width: 2560,
+            native_height: 1600,
+        };
+        let mut runtime = ReceiverSessionRuntime::new_with_display_layouts(
+            boot(2),
+            FakeInjector::default(),
+            vec![layout.clone()],
+        );
+        activate(&mut runtime, &authenticated);
+
+        assert_eq!(
+            runtime.handle_motion_at(motion(1, 0, 1439, 899), &authenticated, 1),
+            Ok(MotionDisposition::Applied)
+        );
+        assert_eq!(
+            runtime.injector().events.last(),
+            Some(&InputCommand::MouseMove {
+                x: -1,
+                y: -1,
+                drag_button: None,
+            })
+        );
+
+        let event_count = runtime.injector().events.len();
+        let mut stale = motion(2, 0, 100, 100);
+        stale.layout_revision = 2;
+        assert!(runtime.handle_motion_at(stale, &authenticated, 2).is_err());
+        assert!(runtime
+            .handle_motion_at(motion(2, 0, 1440, 100), &authenticated, 3)
+            .is_err());
+        assert_eq!(runtime.injector().events.len(), event_count);
+
+        let invalid_click = CriticalFrame {
+            session_id: session(),
+            sequence: 1,
+            event: CriticalEvent::Button {
+                button: CriticalButton::Left,
+                down: true,
+                x: 1440,
+                y: 100,
+                motion_sequence: 1,
+            },
+        };
+        assert!(runtime
+            .handle_input_at(&invalid_click, &authenticated, 4)
+            .is_err());
+        assert_eq!(runtime.injector().events.len(), event_count);
+        let valid_key = CriticalFrame {
+            sequence: 1,
+            event: CriticalEvent::Key {
+                key_code: 65,
+                scan_code: 30,
+                extended: false,
+                down: true,
+            },
+            ..invalid_click
+        };
+        assert!(runtime
+            .handle_input_at(&valid_key, &authenticated, 5)
+            .is_ok());
+
+        let changed = ReceiverDisplayLayout {
+            layout_revision: 2,
+            ..layout
+        };
+        assert_eq!(runtime.update_display_layouts(vec![changed]), Ok(true));
+        assert!(!runtime.health().active);
+        assert_eq!(
+            runtime.health().last_fault,
+            Some(SessionFault::LayoutChanged)
+        );
     }
 
     #[test]
@@ -970,6 +1252,7 @@ mod tests {
                 &ControlFrame::Prepare {
                     request_id: 7,
                     target_display: "mac-main".into(),
+                    layout_revision: 1,
                 },
                 &authenticated,
             ),

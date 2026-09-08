@@ -539,7 +539,7 @@ struct FileTransferPacket {
 struct AppRuntime {
     app_handle: AppHandle,
     layout: Arc<Mutex<LayoutState>>,
-    native_layout: Mutex<LayoutState>,
+    native_layout: Arc<Mutex<LayoutState>>,
     runtime: Mutex<RuntimeStatus>,
     peers: Arc<Mutex<Vec<LanPeer>>>,
     pairing_challenge: Arc<Mutex<Option<PairingChallenge>>>,
@@ -583,7 +583,7 @@ impl AppRuntime {
         Self {
             app_handle,
             layout: Arc::new(Mutex::new(layout)),
-            native_layout: Mutex::new(detected_layout.clone()),
+            native_layout: Arc::new(Mutex::new(detected_layout.clone())),
             runtime: Mutex::new(default_runtime(&detected_layout)),
             peers: Arc::new(Mutex::new(Vec::new())),
             pairing_challenge: Arc::new(Mutex::new(None)),
@@ -771,9 +771,17 @@ impl AppRuntime {
         }
 
         let layout_for_input = Arc::clone(&self.layout);
+        let layout_for_v2_control = Arc::clone(&self.layout);
+        let layout_for_v2_input = Arc::clone(&self.layout);
+        let layout_for_v2_lease = Arc::clone(&self.layout);
         let layout_for_clipboard = Arc::clone(&self.layout);
         let layout_for_pairing = Arc::clone(&self.layout);
         let native_layout_for_input = self.native_layout();
+        let native_layout_for_v2_control = Arc::clone(&self.native_layout);
+        let native_layout_for_v2_input = Arc::clone(&self.native_layout);
+        let native_layout_for_v2_motion = Arc::clone(&self.native_layout);
+        let native_layout_for_v2_lease = Arc::clone(&self.native_layout);
+        let app_handle_for_v2_lease = self.app_handle.clone();
         let input_receive_enabled = Arc::clone(&self.input_receive_enabled);
         let clipboard_receive_enabled = Arc::clone(&self.clipboard_receive_enabled);
         let clipboard_seen_text = Arc::clone(&self.clipboard_seen_text);
@@ -797,10 +805,17 @@ impl AppRuntime {
                 .map_err(|_| "layout state lock poisoned".to_string())?,
         )?;
         let trust_registry_for_pairing = trust_registry.clone();
-        let receiver_runtime = Arc::new(Mutex::new(session_runtime::ReceiverSessionRuntime::new(
+        let receiver_layouts = snapshot_v2_receiver_display_layouts(
+            &self.layout,
+            &self.native_layout,
+        )
+        .ok_or_else(|| "display layout state is unavailable".to_string())?;
+        let receiver_runtime = Arc::new(Mutex::new(
+            session_runtime::ReceiverSessionRuntime::new_with_display_layouts(
             protocol_v2::BootId::generate()
                 .map_err(|error| format!("failed to generate V2 receiver boot id: {error:?}"))?,
             input::NativeInjector,
+            receiver_layouts,
         )));
         let receiver_for_control = Arc::clone(&receiver_runtime);
         let receiver_for_input = Arc::clone(&receiver_runtime);
@@ -813,6 +828,7 @@ impl AppRuntime {
         let lease_epoch_for_motion = Arc::clone(&lease_epoch);
         let v2_control_enabled = Arc::clone(&self.input_receive_enabled);
         let v2_input_enabled = Arc::clone(&self.input_receive_enabled);
+        let v2_lease_enabled = Arc::clone(&self.input_receive_enabled);
         let fault_for_control = Arc::clone(&self.v2_session_fault);
         let fault_for_input = Arc::clone(&self.v2_session_fault);
         let fault_for_motion = Arc::clone(&self.v2_session_fault);
@@ -824,16 +840,24 @@ impl AppRuntime {
                 if !input_receive_enabled.load(Ordering::Relaxed) {
                     return;
                 }
-                let role_allowed = layout_for_input
+                if !layout_for_input
                     .lock()
                     .map(|layout| authenticated_peer_role_allowed(&layout, authenticated.role))
-                    .unwrap_or(false);
-                if !role_allowed {
+                    .unwrap_or(false)
+                {
                     return;
                 }
+                let display_layouts = snapshot_v2_receiver_display_layouts(
+                    &layout_for_input,
+                    &native_layout_for_v2_motion,
+                );
+                let Some(display_layouts) = display_layouts else {
+                    return;
+                };
                 match protocol_v2::decode_motion(&payload) {
                     Ok(frame) => {
                         let result = receiver_for_motion.lock().map(|mut receiver| {
+                            receiver.update_display_layouts(display_layouts)?;
                             receiver.handle_motion_at(
                                 frame,
                                 &authenticated,
@@ -994,15 +1018,24 @@ impl AppRuntime {
                     .lock()
                     .ok()
                     .and_then(|mut receiver| {
-                        match receiver.handle_control_at(
-                            &frame,
-                            &authenticated,
-                            lease_epoch_for_control
-                                .elapsed()
-                                .as_millis()
-                                .min(u128::from(u64::MAX))
-                                as u64,
-                        ) {
+                        let display_layouts = snapshot_v2_receiver_display_layouts(
+                            &layout_for_v2_control,
+                            &native_layout_for_v2_control,
+                        )?;
+                        match receiver
+                            .update_display_layouts(display_layouts)
+                            .and_then(|_| {
+                                receiver.handle_control_at(
+                                    &frame,
+                                    &authenticated,
+                                    lease_epoch_for_control
+                                        .elapsed()
+                                        .as_millis()
+                                        .min(u128::from(u64::MAX))
+                                        as u64,
+                                )
+                            })
+                        {
                             Ok(response) => {
                                 if matches!(response, Some(protocol_v2::ControlFrame::CommitAck { .. })) {
                                     if let Ok(mut fault) = fault_for_control.lock() {
@@ -1030,6 +1063,14 @@ impl AppRuntime {
                 let result = receiver_for_input
                     .lock()
                     .map(|mut receiver| {
+                        let display_layouts = snapshot_v2_receiver_display_layouts(
+                            &layout_for_v2_input,
+                            &native_layout_for_v2_input,
+                        )
+                        .ok_or(session_runtime::SessionRuntimeError::Protocol(
+                            protocol_v2::ProtocolError::InvalidField("layout_revision"),
+                        ))?;
+                        receiver.update_display_layouts(display_layouts)?;
                         receiver
                             .handle_input_at(
                                 &frame,
@@ -1076,28 +1117,67 @@ impl AppRuntime {
                 }
             }),
         )?;
-        thread::spawn(move || loop {
-            thread::sleep(Duration::from_millis(100));
-            let Some(receiver) = receiver_for_lease.upgrade() else {
-                break;
-            };
-            if let Ok(mut receiver) = receiver.lock() {
-                let now_ms = lease_epoch.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-                match receiver.expire_if_needed(now_ms) {
-                    Ok(true) => {
-                        if let Ok(mut fault) = fault_for_lease.lock() {
-                            *fault = Some("V2 input lease expired; held input was released.".into());
-                        }
-                    }
-                    Err(error) => {
-                        if let Ok(mut fault) = fault_for_lease.lock() {
-                            *fault = Some(format!("V2 input lease cleanup failed: {error:?}"));
-                        }
-                        log::warn!("V2 input lease cleanup failed: {error:?}");
-                    }
-                    Ok(false) => {}
+        thread::spawn(move || {
+            let mut last_display_refresh = Instant::now() - Duration::from_secs(1);
+            loop {
+                thread::sleep(Duration::from_millis(100));
+                let Some(receiver) = receiver_for_lease.upgrade() else {
+                    break;
+                };
+                if v2_lease_enabled.load(Ordering::Acquire)
+                    && last_display_refresh.elapsed() >= Duration::from_millis(500)
+                {
+                    last_display_refresh = Instant::now();
+                    refresh_native_display_layout(
+                        &app_handle_for_v2_lease,
+                        &native_layout_for_v2_lease,
+                        &layout_for_v2_lease,
+                    );
                 }
-            };
+                let display_layouts = snapshot_v2_receiver_display_layouts(
+                    &layout_for_v2_lease,
+                    &native_layout_for_v2_lease,
+                );
+                if let (Ok(mut receiver), Some(display_layouts)) =
+                    (receiver.lock(), display_layouts)
+                {
+                    match receiver.update_display_layouts(display_layouts) {
+                        Ok(true) => {
+                            if let Ok(mut fault) = fault_for_lease.lock() {
+                                *fault = Some(
+                                    "显示器布局已变化，远程输入已释放；请重新控制 Mac。".into(),
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            if let Ok(mut fault) = fault_for_lease.lock() {
+                                *fault = Some(format!(
+                                    "V2 display layout cleanup failed: {error:?}"
+                                ));
+                            }
+                        }
+                        Ok(false) => {}
+                    }
+                    let now_ms =
+                        lease_epoch.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                    match receiver.expire_if_needed(now_ms) {
+                        Ok(true) => {
+                            if let Ok(mut fault) = fault_for_lease.lock() {
+                                *fault =
+                                    Some("V2 input lease expired; held input was released.".into());
+                            }
+                        }
+                        Err(error) => {
+                            if let Ok(mut fault) = fault_for_lease.lock() {
+                                *fault =
+                                    Some(format!("V2 input lease cleanup failed: {error:?}"));
+                            }
+                            log::warn!("V2 input lease cleanup failed: {error:?}");
+                        }
+                        Ok(false) => {}
+                    }
+                };
+            }
         });
         let mut stored = self
             .quic_transport
@@ -4552,6 +4632,120 @@ fn detect_local_screens(app: &AppHandle, device_id: &str) -> Vec<Screen> {
             }
         })
         .collect()
+}
+
+fn screen_layout_revision(screen: &Screen) -> u64 {
+    session_runtime::display_layout_revision(
+        &screen.id,
+        screen.width,
+        screen.height,
+        screen.scale.to_bits(),
+    )
+}
+
+fn v2_receiver_display_layouts(
+    layout: &LayoutState,
+    native_layout: &LayoutState,
+) -> Vec<session_runtime::ReceiverDisplayLayout> {
+    let Some(local) = layout
+        .devices
+        .iter()
+        .find(|device| device.role == "local" || device.id == layout.active_device_id)
+    else {
+        return Vec::new();
+    };
+    local
+        .screens
+        .iter()
+        .filter_map(|screen| {
+            let native = native_layout
+                .devices
+                .iter()
+                .flat_map(|device| &device.screens)
+                .find(|candidate| candidate.id == screen.id)?;
+            Some(session_runtime::ReceiverDisplayLayout {
+                display_id: screen.id.clone(),
+                layout_revision: screen_layout_revision(screen),
+                logical_width: screen.width,
+                logical_height: screen.height,
+                native_x: native.x,
+                native_y: native.y,
+                native_width: native.width,
+                native_height: native.height,
+            })
+        })
+        .collect()
+}
+
+fn snapshot_v2_receiver_display_layouts(
+    layout: &Arc<Mutex<LayoutState>>,
+    native_layout: &Arc<Mutex<LayoutState>>,
+) -> Option<Vec<session_runtime::ReceiverDisplayLayout>> {
+    let layout = layout.lock().ok()?;
+    let native_layout = native_layout.lock().ok()?;
+    Some(v2_receiver_display_layouts(&layout, &native_layout))
+}
+
+fn refresh_native_display_layout(
+    app_handle: &AppHandle,
+    native_layout: &Arc<Mutex<LayoutState>>,
+    layout: &Arc<Mutex<LayoutState>>,
+) {
+    let device_id = native_layout
+        .lock()
+        .ok()
+        .and_then(|layout| {
+            layout
+                .devices
+                .iter()
+                .find(|device| device.role == "local")
+                .or_else(|| layout.devices.first())
+                .map(|device| device.id.clone())
+        });
+    let Some(device_id) = device_id else {
+        return;
+    };
+    let screens = detect_local_screens(app_handle, &device_id);
+    let selected_screen_id = screens
+        .iter()
+        .find(|screen| screen.is_primary)
+        .or_else(|| screens.first())
+        .map(|screen| screen.id.clone())
+        .unwrap_or_default();
+    let changed = if let Ok(mut native_layout) = native_layout.lock() {
+        if let Some(local) = native_layout
+            .devices
+            .iter_mut()
+            .find(|device| device.role == "local" || device.id == device_id)
+        {
+            if local.screens == screens {
+                false
+            } else {
+            local.screens = screens.clone();
+                native_layout.selected_screen_id = selected_screen_id;
+                true
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    if !changed {
+        return;
+    }
+    if let Ok(mut layout) = layout.lock() {
+        if let Some(local) = layout.devices.iter_mut().find(|device| device.role == "local") {
+            let local_id = local.id.clone();
+            local.screens = screens
+                .into_iter()
+                .map(|mut screen| {
+                    screen.device_id = local_id.clone();
+                    screen
+                })
+                .collect();
+        }
+    }
 }
 
 fn normalize_saved_layout(saved_layout: LayoutState, detected_layout: LayoutState) -> LayoutState {

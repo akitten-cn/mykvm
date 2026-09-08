@@ -2285,6 +2285,7 @@ mod tests {
             .try_send(ControlFrame::Prepare {
                 request_id: 7,
                 target_display: "mac-main".into(),
+                layout_revision: 1,
             })
             .unwrap();
         let ready = frame_rx.recv_timeout(Duration::from_secs(2)).unwrap();
@@ -2615,6 +2616,8 @@ mod tests {
             handle
                 .try_send(&MotionFrame {
                     session_id,
+                    display_id: "mac-main".into(),
+                    layout_revision: 1,
                     sequence,
                     required_reliable_sequence: 7,
                     x: sequence as i32,
@@ -2634,6 +2637,8 @@ mod tests {
             protocol_v2::decode_motion(&latest).unwrap(),
             MotionFrame {
                 session_id,
+                display_id: "mac-main".into(),
+                layout_revision: 1,
                 sequence: 100,
                 required_reliable_sequence: 7,
                 x: 100,

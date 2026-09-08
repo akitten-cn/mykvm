@@ -26,6 +26,7 @@ pub struct ControllerTarget {
     pub addr: String,
     pub protocol_version: u16,
     pub target_display: String,
+    pub layout_revision: u64,
 }
 
 #[derive(Clone)]
@@ -213,6 +214,7 @@ impl<T: ControllerTransport> ControllerClient<T> {
         let actions = match self.runtime.begin(
             &target.peer_id,
             target.target_display.clone(),
+            target.layout_revision,
             now_ms,
             capture,
         ) {
@@ -439,7 +441,7 @@ mod tests {
             if self.fail_motion {
                 return Err("motion closed".into());
             }
-            self.motions.push(*frame);
+            self.motions.push(frame.clone());
             Ok(())
         }
 
@@ -459,6 +461,7 @@ mod tests {
             addr: "127.0.0.1:44888".into(),
             protocol_version: 2,
             target_display: "mac-main".into(),
+            layout_revision: 1,
         }
     }
 
@@ -491,6 +494,8 @@ mod tests {
             request_id,
             receiver_boot: boot(2),
             input_ready: true,
+            target_display: "mac-main".into(),
+            layout_revision: 1,
         });
         let mut focus = FakeFocus::default();
         client.poll(1, false, &mut capture, &mut focus).unwrap();
@@ -548,6 +553,8 @@ mod tests {
             request_id,
             receiver_boot: session_id.receiver_boot,
             input_ready: true,
+            target_display: "mac-main".into(),
+            layout_revision: 1,
         });
         let mut focus = FakeFocus::default();
         client.poll(1, true, &mut capture, &mut focus).unwrap();
@@ -595,6 +602,8 @@ mod tests {
             request_id,
             receiver_boot: boot(2),
             input_ready: true,
+            target_display: "mac-main".into(),
+            layout_revision: 1,
         });
         let mut focus = FakeFocus::default();
         client.poll(1, true, &mut capture, &mut focus).unwrap();

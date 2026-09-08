@@ -29,6 +29,7 @@ pub struct ControllerRuntime {
     pending_session: Option<SessionId>,
     input_sequence: u64,
     motion_sequence: u64,
+    display: Option<(String, u64)>,
 }
 
 impl ControllerRuntime {
@@ -53,6 +54,7 @@ impl ControllerRuntime {
             pending_session: None,
             input_sequence: 0,
             motion_sequence: 0,
+            display: None,
         })
     }
 
@@ -79,6 +81,7 @@ impl ControllerRuntime {
         &mut self,
         peer_id: &str,
         target_display: String,
+        layout_revision: u64,
         now_ms: u64,
         capture: &mut C,
     ) -> Result<Vec<ControllerAction>, ControllerRuntimeError> {
@@ -89,12 +92,19 @@ impl ControllerRuntime {
         let Some(RouteEffect::Prepare { request, .. }) = effects.first() else {
             return Ok(vec![]);
         };
-        match self.handshake.begin(*request, target_display) {
-            Ok(frames) => Ok(frames
-                .into_iter()
-                .map(ControllerAction::SendControl)
-                .collect()),
+        match self
+            .handshake
+            .begin(*request, target_display.clone(), layout_revision)
+        {
+            Ok(frames) => {
+                self.display = Some((target_display, layout_revision));
+                Ok(frames
+                    .into_iter()
+                    .map(ControllerAction::SendControl)
+                    .collect())
+            }
             Err(error) => {
+                self.display = None;
                 self.router.go_local(ReturnReason::NetworkFailed, capture);
                 Err(ControllerRuntimeError::Protocol(error))
             }
@@ -246,6 +256,11 @@ impl ControllerRuntime {
             .handshake
             .active_session()
             .ok_or(ControllerRuntimeError::NotActive)?;
+        let (display_id, layout_revision) = self
+            .display
+            .as_ref()
+            .cloned()
+            .ok_or(ControllerRuntimeError::NotActive)?;
         self.motion_sequence =
             self.motion_sequence
                 .checked_add(1)
@@ -254,6 +269,8 @@ impl ControllerRuntime {
                 ))?;
         Ok(MotionFrame {
             session_id,
+            display_id,
+            layout_revision,
             sequence: self.motion_sequence,
             required_reliable_sequence: self.input_sequence,
             x,
@@ -378,7 +395,7 @@ mod tests {
         let mut runtime = ControllerRuntime::new(boot(1), "windows".into()).unwrap();
         let mut capture = FakeCapture::default();
         let actions = runtime
-            .begin("mac", "mac-main".into(), 0, &mut capture)
+            .begin("mac", "mac-main".into(), 1, 0, &mut capture)
             .unwrap();
         assert_eq!(actions.len(), 2);
         let ControlFrame::Prepare { request_id, .. } = (match &actions[1] {
@@ -399,6 +416,8 @@ mod tests {
                     request_id: request,
                     receiver_boot: boot(2),
                     input_ready: true,
+                    target_display: "mac-main".into(),
+                    layout_revision: 1,
                 },
                 100,
                 &mut capture,
@@ -458,6 +477,8 @@ mod tests {
                     request_id: request,
                     receiver_boot: boot(2),
                     input_ready: true,
+                    target_display: "mac-main".into(),
+                    layout_revision: 1,
                 },
                 1,
                 &mut capture,
@@ -505,6 +526,8 @@ mod tests {
                     request_id: request,
                     receiver_boot: boot(2),
                     input_ready: true,
+                    target_display: "mac-main".into(),
+                    layout_revision: 1,
                 },
                 1,
                 &mut capture,
@@ -546,6 +569,8 @@ mod tests {
                     request_id: request,
                     receiver_boot: boot(2),
                     input_ready: true,
+                    target_display: "mac-main".into(),
+                    layout_revision: 1,
                 },
                 1,
                 &mut capture,
@@ -578,6 +603,8 @@ mod tests {
                     request_id: request,
                     receiver_boot: boot(2),
                     input_ready: true,
+                    target_display: "mac-main".into(),
+                    layout_revision: 1,
                 },
                 1,
                 &mut capture,
@@ -612,6 +639,8 @@ mod tests {
                     request_id: request,
                     receiver_boot: boot(2),
                     input_ready: true,
+                    target_display: "mac-main".into(),
+                    layout_revision: 1,
                 },
                 1,
                 &mut capture,

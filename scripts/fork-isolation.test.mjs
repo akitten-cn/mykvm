@@ -100,6 +100,18 @@ test('A09: Windows focus handoff is one-shot and reports conservative fallback',
   assert.match(input, /fn restore_windows_foreground\([\s\S]*?previous_foreground\.swap\([\s\S]*?SetForegroundWindow/)
 })
 
+test('A29: V2 production motion is bound to display layout and mapped before injection', () => {
+  const protocol = read('src-tauri/src/protocol_v2.rs')
+  assert.match(protocol, /pub struct MotionFrame \{[\s\S]*?display_id: String,[\s\S]*?layout_revision: u64/)
+  assert.match(protocol, /ControlFrame::Prepare \{[\s\S]*?target_display,[\s\S]*?layout_revision/)
+  const session = read('src-tauri/src/session_runtime.rs')
+  assert.match(session, /frame\.display_id != active_display\.display_id[\s\S]*?frame\.layout_revision != active_display\.layout_revision/)
+  assert.match(session, /fn map_active_pointer[\s\S]*?\.map\(x, y\)/)
+  assert.match(session, /update_display_layouts[\s\S]*?SessionFault::LayoutChanged[\s\S]*?release_pressed/)
+  const input = read('src-tauri/src/input.rs')
+  assert.match(input, /ControllerTarget \{[\s\S]*?target_display:[\s\S]*?layout_revision:/)
+})
+
 test('A08/A28: Windows local game hooks bypass context and contain panics', () => {
   const gameMode = read('src-tauri/src/game_mode.rs')
   assert.match(gameMode, /static LOCAL_GAME_MODE: AtomicBool/)

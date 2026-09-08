@@ -3206,6 +3206,12 @@ fn begin_v2_controller_windows(
         addr: active.target.target_addr.clone(),
         protocol_version: active.target.protocol_version,
         target_display: active.current_screen_id.clone(),
+        layout_revision: crate::session_runtime::display_layout_revision(
+            &active.current_screen.id,
+            active.current_screen.width,
+            active.current_screen.height,
+            active.current_screen.scale.to_bits(),
+        ),
     };
     let mut controller = match controller.lock() {
         Ok(controller) => controller,

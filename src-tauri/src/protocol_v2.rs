@@ -73,9 +73,11 @@ pub struct CriticalFrame {
     pub event: CriticalEvent,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MotionFrame {
     pub session_id: SessionId,
+    pub display_id: String,
+    pub layout_revision: u64,
     pub sequence: u64,
     pub required_reliable_sequence: u64,
     pub x: i32,
@@ -124,11 +126,14 @@ pub enum ControlFrame {
     Prepare {
         request_id: u64,
         target_display: String,
+        layout_revision: u64,
     },
     Ready {
         request_id: u64,
         receiver_boot: BootId,
         input_ready: bool,
+        target_display: String,
+        layout_revision: u64,
     },
     Commit {
         request_id: u64,
@@ -234,7 +239,7 @@ pub fn encode_motion(frame: &MotionFrame) -> Result<Vec<u8>, ProtocolError> {
     let payload = rmp_serde::to_vec_named(&MotionEnvelope {
         magic: MOTION_MAGIC,
         major: PROTOCOL_MAJOR,
-        frame: *frame,
+        frame: frame.clone(),
     })
     .map_err(|_| ProtocolError::Decode)?;
     if payload.is_empty() || payload.len() > MAX_MOTION_FRAME_BYTES {
@@ -436,6 +441,10 @@ fn validate_critical(frame: &CriticalFrame) -> Result<(), ProtocolError> {
 
 fn validate_motion(frame: &MotionFrame) -> Result<(), ProtocolError> {
     validate_session(&frame.session_id)?;
+    validate_text(&frame.display_id, MAX_PEER_ID_BYTES, "display_id")?;
+    if frame.layout_revision == 0 {
+        return Err(ProtocolError::InvalidField("layout_revision"));
+    }
     if frame.sequence == 0 {
         return Err(ProtocolError::InvalidField("motion_sequence"));
     }
@@ -466,14 +475,29 @@ fn validate_frame(frame: &ControlFrame) -> Result<(), ProtocolError> {
         ControlFrame::Prepare {
             request_id,
             target_display,
+            layout_revision,
         } => {
             if *request_id == 0 {
                 return Err(ProtocolError::InvalidField("request_id"));
             }
             validate_text(target_display, MAX_PEER_ID_BYTES, "target_display")?;
+            if *layout_revision == 0 {
+                return Err(ProtocolError::InvalidField("layout_revision"));
+            }
         }
-        ControlFrame::Ready { request_id, .. } if *request_id == 0 => {
-            return Err(ProtocolError::InvalidField("request_id"));
+        ControlFrame::Ready {
+            request_id,
+            target_display,
+            layout_revision,
+            ..
+        } => {
+            if *request_id == 0 {
+                return Err(ProtocolError::InvalidField("request_id"));
+            }
+            validate_text(target_display, MAX_PEER_ID_BYTES, "target_display")?;
+            if *layout_revision == 0 {
+                return Err(ProtocolError::InvalidField("layout_revision"));
+            }
         }
         ControlFrame::Commit {
             request_id,
@@ -495,7 +519,6 @@ fn validate_frame(frame: &ControlFrame) -> Result<(), ProtocolError> {
             validate_text(code, MAX_CAPABILITY_BYTES, "code")?;
             validate_text(detail, MAX_DETAIL_BYTES, "detail")?;
         }
-        _ => {}
     }
     Ok(())
 }
@@ -548,6 +571,8 @@ enum ControllerState {
     Idle,
     AwaitReady {
         request_id: u64,
+        target_display: String,
+        layout_revision: u64,
     },
     Ready {
         request_id: u64,
@@ -591,16 +616,22 @@ impl ControllerHandshake {
         &mut self,
         request_id: u64,
         target_display: String,
+        layout_revision: u64,
     ) -> Result<Vec<ControlFrame>, ProtocolError> {
         if !matches!(self.state, ControllerState::Idle | ControllerState::Ended) {
             return Err(ProtocolError::InvalidTransition);
         }
         let prepare = ControlFrame::Prepare {
             request_id,
-            target_display,
+            target_display: target_display.clone(),
+            layout_revision,
         };
         validate_frame(&prepare)?;
-        self.state = ControllerState::AwaitReady { request_id };
+        self.state = ControllerState::AwaitReady {
+            request_id,
+            target_display,
+            layout_revision,
+        };
         Ok(vec![
             ControlFrame::Hello {
                 boot_id: self.local_boot,
@@ -619,13 +650,23 @@ impl ControllerHandshake {
         validate_frame(frame)?;
         match (self.state.clone(), frame) {
             (
-                ControllerState::AwaitReady { request_id },
+                ControllerState::AwaitReady {
+                    request_id,
+                    target_display,
+                    layout_revision,
+                },
                 ControlFrame::Ready {
                     request_id: received,
                     receiver_boot,
                     input_ready: true,
+                    target_display: received_display,
+                    layout_revision: received_revision,
                 },
-            ) if request_id == *received && receiver_boot.0 != [0; 16] => {
+            ) if request_id == *received
+                && target_display == *received_display
+                && layout_revision == *received_revision
+                && receiver_boot.0 != [0; 16] =>
+            {
                 let session_id = SessionId::generate(self.local_boot, *receiver_boot)?;
                 self.state = ControllerState::Ready {
                     request_id,
@@ -846,7 +887,8 @@ impl ReceiverHandshake {
                 ReceiverState::Idle { controller_boot },
                 ControlFrame::Prepare {
                     request_id,
-                    target_display: _,
+                    target_display,
+                    layout_revision,
                 },
             ) => {
                 self.state = ReceiverState::Prepared {
@@ -857,6 +899,8 @@ impl ReceiverHandshake {
                     request_id: *request_id,
                     receiver_boot: self.local_boot,
                     input_ready: true,
+                    target_display: target_display.clone(),
+                    layout_revision: *layout_revision,
                 }))
             }
             (
@@ -920,7 +964,8 @@ impl ReceiverHandshake {
                 ReceiverState::Ended { session_id },
                 ControlFrame::Prepare {
                     request_id,
-                    target_display: _,
+                    target_display,
+                    layout_revision,
                 },
             ) => {
                 self.state = ReceiverState::Prepared {
@@ -931,6 +976,8 @@ impl ReceiverHandshake {
                     request_id: *request_id,
                     receiver_boot: self.local_boot,
                     input_ready: true,
+                    target_display: target_display.clone(),
+                    layout_revision: *layout_revision,
                 }))
             }
             (ReceiverState::AwaitHello, _) => Err(ProtocolError::InvalidTransition),
@@ -1022,6 +1069,7 @@ mod tests {
         let second = encode_control(&ControlFrame::Prepare {
             request_id: 7,
             target_display: "mac-main".into(),
+            layout_revision: 1,
         })
         .unwrap();
         let mut decoder = ControlDecoder::default();
@@ -1053,6 +1101,7 @@ mod tests {
             .handle(&ControlFrame::Prepare {
                 request_id: 7,
                 target_display: "mac-main".into(),
+                layout_revision: 1,
             })
             .unwrap();
         let stale = SessionId {
@@ -1077,6 +1126,7 @@ mod tests {
             .handle(&ControlFrame::Prepare {
                 request_id: 7,
                 target_display: "mac-main".into(),
+                layout_revision: 1,
             })
             .unwrap();
         let session = SessionId {
@@ -1278,6 +1328,8 @@ mod tests {
                 receiver_boot: boot(2),
                 nonce: [9; 16],
             },
+            display_id: "mac-main".into(),
+            layout_revision: 1,
             sequence,
             required_reliable_sequence,
             x: 1920,
@@ -1302,6 +1354,12 @@ mod tests {
         assert_eq!(
             decode_motion(&vec![0; MAX_MOTION_FRAME_BYTES + 1]),
             Err(ProtocolError::FrameTooLarge(MAX_MOTION_FRAME_BYTES + 1))
+        );
+        let mut stale_layout = motion(1, 0);
+        stale_layout.layout_revision = 0;
+        assert_eq!(
+            encode_motion(&stale_layout),
+            Err(ProtocolError::InvalidField("layout_revision"))
         );
     }
 
@@ -1332,13 +1390,14 @@ mod tests {
     #[test]
     fn controller_handshake_generates_fresh_session_and_requires_exact_ack() {
         let mut controller = ControllerHandshake::new(boot(1), "controller-a".into()).unwrap();
-        let begin = controller.begin(7, "mac-main".into()).unwrap();
+        let begin = controller.begin(7, "mac-main".into(), 1).unwrap();
         assert!(matches!(begin[0], ControlFrame::Hello { .. }));
         assert_eq!(
             begin[1],
             ControlFrame::Prepare {
                 request_id: 7,
                 target_display: "mac-main".into(),
+                layout_revision: 1,
             }
         );
         assert_eq!(
@@ -1347,6 +1406,8 @@ mod tests {
                     request_id: 7,
                     receiver_boot: boot(2),
                     input_ready: true,
+                    target_display: "mac-main".into(),
+                    layout_revision: 1,
                 })
                 .unwrap(),
             None
@@ -1376,12 +1437,24 @@ mod tests {
     #[test]
     fn controller_rejects_unready_or_stale_ready_and_scopes_ping_end() {
         let mut controller = ControllerHandshake::new(boot(1), "controller-a".into()).unwrap();
-        controller.begin(7, "mac-main".into()).unwrap();
+        controller.begin(7, "mac-main".into(), 1).unwrap();
+        assert_eq!(
+            controller.handle(&ControlFrame::Ready {
+                request_id: 7,
+                receiver_boot: boot(2),
+                input_ready: true,
+                target_display: "mac-main".into(),
+                layout_revision: 2,
+            }),
+            Err(ProtocolError::WrongSession)
+        );
         assert_eq!(
             controller.handle(&ControlFrame::Ready {
                 request_id: 8,
                 receiver_boot: boot(2),
                 input_ready: true,
+                target_display: "mac-main".into(),
+                layout_revision: 1,
             }),
             Err(ProtocolError::WrongSession)
         );
@@ -1390,6 +1463,8 @@ mod tests {
                 request_id: 7,
                 receiver_boot: boot(2),
                 input_ready: false,
+                target_display: "mac-main".into(),
+                layout_revision: 1,
             }),
             Err(ProtocolError::WrongSession)
         );
@@ -1399,6 +1474,8 @@ mod tests {
                     request_id: 7,
                     receiver_boot: boot(2),
                     input_ready: true,
+                    target_display: "mac-main".into(),
+                    layout_revision: 1,
                 })
                 .unwrap(),
             None
