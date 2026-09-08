@@ -179,9 +179,8 @@
       "method": "进程代际改变后送旧包",
       "expected": "旧输入不作用于新会话",
       "blocking_development": true,
-      "status": "not_run",
-      "partial_evidence": ["../T06a-protocol.md", "../T06c-input-stream.md", "protocol_v2::tests::a16_input_gate_rejects_previous_receiver_boot_without_applying"],
-      "remaining": "Protocol input gate rejects the old receiver boot before dispatch; T04.b/T07 must still prove this through the production handler and FakeInjector."
+      "status": "pass",
+      "evidence": ["../T06a-protocol.md", "../T06c-input-stream.md", "../T19-safe-loopback.md", "protocol_v2::tests::a16_input_gate_rejects_previous_receiver_boot_without_applying", "safe_loopback::m05_authenticated_loopback_applies_reliable_and_motion_only_to_fake_injector"]
     },
     {
       "id": "A17",
@@ -514,7 +513,8 @@
       "method": "两个隔离 fixture peer，loopback，默认 FakeInjector",
       "expected": "验证 auth/framing/session，不钩真实输入",
       "blocking_development": false,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T19-safe-loopback.md", "safe_loopback::m05_authenticated_loopback_applies_reliable_and_motion_only_to_fake_injector", ".local-evidence/t19-postcommit.log"]
     },
     {
       "id": "M06",

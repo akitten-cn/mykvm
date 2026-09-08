@@ -166,3 +166,11 @@ A30 的表驱动测试覆盖左右 Ctrl/Win/Alt 的默认保留与显式 Ctrl/Co
 接收端在 pressed-state 登记前映射，测试在右 Ctrl 按下后改变配置，仍按 key-down 时冻结的右 Command 目标释放。Caps Lock 的旧 Ctrl+Space 合成路径已移除，生产隔离检查确认 receiver-only 分支只报告 injector 状态且不创建本地 capture。权限拒绝逻辑已由 FakeInjector 和生产路径静态检查覆盖，但 M04/M06 需要真实辅助功能授权和固定测试应用，本轮未运行。
 
 实现 SHA `7bf95bb7ebf89c93a04dda839e3423e681935c9d` 的 `.local-evidence/t12-postcommit.log` 退出码 0：205 个 Rust 库测试、13 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查通过。A19、A20、A30、A31 为 pass；Mac 应用/真实按键/IME 为 not_run，Windows 原生编译为 pending_environment。
+
+## T19 Mac 安全回环
+
+M05 在本机创建两个独立临时证书目录和真实 QUIC endpoint，经逐设备证书信任完成 V2 control、input 与 motion。接收端由 `FakeInjector` 记录事件；静态隔离测试确认整个模块只在 test 配置编译，且不引用原生捕获或注入 API。
+
+同一回环把后发的较小 motion sequence 判为 stale；第一代会话结束后，生产 input handler 拒绝其旧帧并通过断流回调释放第二代按住的键，由此完成 A16 的剩余生产接线证据。第三代会话以可控时间触发 3 秒租约并验证 key-up。既有 A10、A18、A22、A24、A26 继续由各自定向测试覆盖。
+
+最终实现 SHA `c184091c6762118c56faf8494cc3ee6215cb0841` 的 `.local-evidence/t19-postcommit.log` 退出码 0：206 个 Rust 库测试、14 项隔离检查、前端 lint/build、Mac cargo check 和相关格式检查通过。M05、A16 更新为 pass；没有启动应用或触碰真实桌面/剪贴板。

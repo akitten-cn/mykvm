@@ -1182,17 +1182,21 @@
       "review_focus": [
         "双进程真实桌面互相捕获不是安全模拟器；不能让测试阻碍用户控制电脑"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../T19-safe-loopback.md",
+        "implementation SHA c184091c6762118c56faf8494cc3ee6215cb0841",
+        ".local-evidence/t19-postcommit.log"
+      ],
       "blocked_reason": null
     },
     {

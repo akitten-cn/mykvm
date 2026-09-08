@@ -99,3 +99,9 @@ V2 Prepare/Ready 现在回显并校验由显示器标识、逻辑宽高和 scale
 原前后端默认将 Ctrl 与 Meta 隐式互换，V2 接收端却没有应用这项设置；Mac Caps Lock 还会绕过键位表并固定合成 Ctrl+Space。现将默认统一为字面保留，设置页增加明确的保留/互换预设，V2 接收端在 pressed-state 之前应用同一套保留左右侧信息的映射。key-up 使用账本冻结的目标，不受运行中设置变化影响。
 
 Caps Lock 恢复普通 macOS 键码 57 注入，不再假设系统输入源快捷键。receiver-only 的 V2 分支不会调用本地捕获启动函数；NativeInjector 的辅助功能和 Secure Input 检查仍位于 Ready 与每次提交路径。源码、FakeInjector 和 Mac 条件编译已核验，真实 TCC 撤销、终端中断、Command 快捷键和中文输入法尚未操作。
+
+## T19 安全回环增量核验
+
+原有 QUIC 回环测试分别验证证书身份、control 或 input，但没有把认证 transport 接到 ReceiverSessionRuntime 和 FakeInjector。新增 test-only 模块使用两套独立持久身份目录，运行真实本机 QUIC control/input/datagram，并由同一个接收会话处理器完成握手、可靠按键和 motion。测试后 endpoint 关闭、临时目录删除。
+
+故障序列跨三个 boot generation：旧 motion 不作用；结束会话的关键帧不能进入新会话；handler 拒绝导致的 stream close 释放账本；租约超时也释放账本。模块由 `#[cfg(test)]` 隔离，生产构建不会暴露 fixture 凭据、测试端口或 FakeInjector 入口。
