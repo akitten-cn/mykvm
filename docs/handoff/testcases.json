@@ -145,7 +145,8 @@
       "method": "V1/未知版本/缺必要能力",
       "expected": "明确拒绝，不降级到未授权协议",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T06a-protocol.md", "protocol_v2::tests::a13_rejects_wrong_major_without_downgrade", "protocol_v2::tests::a13_rejects_missing_capabilities_and_wrong_role"]
     },
     {
       "id": "A14",
@@ -154,7 +155,8 @@
       "method": "畸形长度、负坐标越界、图片乘法溢出",
       "expected": "分配前有界拒绝，无 panic/OOM",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T06a-protocol.md", "protocol_v2::tests::a14_rejects_oversize_before_payload_allocation"]
     },
     {
       "id": "A15",
@@ -163,7 +165,8 @@
       "method": "逐字节/多帧合包/中间截断",
       "expected": "正确恢复帧；截断终止会话不死等",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T06a-protocol.md", "protocol_v2::tests::a15_decodes_bytewise_and_multiple_frames", "protocol_v2::tests::a15_reports_truncated_stream"]
     },
     {
       "id": "A16",
@@ -172,7 +175,9 @@
       "method": "进程代际改变后送旧包",
       "expected": "旧输入不作用于新会话",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": ["../T06a-protocol.md"],
+      "remaining": "Pure receiver handshake rejects old boot; input session and FakeInjector integration remain."
     },
     {
       "id": "A17",
@@ -181,7 +186,9 @@
       "method": "End 后补发 Pong/Commit/位置",
       "expected": "终止会话保持无效",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": ["../T06a-protocol.md"],
+      "remaining": "Pure receiver handshake remains ended; runtime input session integration remains."
     },
     {
       "id": "A18",

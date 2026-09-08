@@ -362,7 +362,7 @@
       "review_focus": [
         "协议是拟新增；不继续把内部 ReleaseAll 当线上已存在的消息"
       ],
-      "implementation": "todo",
+      "implementation": "in_progress",
       "review": "pending",
       "verification": {
         "automated": "not_run",
@@ -372,8 +372,28 @@
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
-      "blocked_reason": null
+      "evidence": [
+        "../T06a-protocol.md"
+      ],
+      "blocked_reason": null,
+      "subtasks": [
+        {
+          "id": "T06.a",
+          "title": "V2 帧、版本与会话握手纯逻辑",
+          "implementation": "done",
+          "review": "approved",
+          "verification": {
+            "automated": "pass",
+            "scope": "7 protocol tests; A13-A15 complete, A16-A17 pure handshake evidence only."
+          }
+        },
+        {
+          "id": "T06.b",
+          "title": "认证 QUIC control 持久流与运行时接入",
+          "implementation": "todo",
+          "review": "pending"
+        }
+      ]
     },
     {
       "id": "T07",

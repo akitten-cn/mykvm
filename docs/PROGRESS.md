@@ -13,10 +13,12 @@
 |T04.b|待实现|真实平台、V2 会话和 IPC 接入；T04 整体仍在进行|
 |T05.a|完成|核验信任漏洞，关闭旧 LAN 入口|
 |T05.b|完成|逐设备持久证书信任、双方 TLS 证书出示、连接代次与角色绑定；配对声明绑定实际连接证书|
+|T06.a|完成|V2 有界帧、版本/能力校验、随机 boot/session 标识及接收握手纯逻辑，7 项测试|
+|T06.b|待实现|认证 QUIC control 持久流与运行时接入；T06 整体仍在进行|
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
 
-最新受测代码 SHA：`f51b6fa8b693615d7e1a3a782c2c2146c7b5d775`。当前 135 个 Rust 库测试通过，其中包括真实 QUIC 本机回环的已授权接收和未授权 datagram 拒绝。7 项静态隔离检查、前端 lint/build、Mac cargo check、新核心格式检查通过。全仓严格 fmt/clippy 尚未通过，详见 TEST_REPORT.md。
+T06.a 工作树回归为 142 个 Rust 库测试通过，其中包括真实 QUIC 本机回环和 7 项 V2 协议测试。7 项静态隔离检查、前端 lint/build、Mac cargo check、新核心格式检查通过。提交后 SHA 将由证据包装器复核；全仓严格 fmt/clippy 尚未通过，详见 TEST_REPORT.md。
 
 平台证据独立记录：Mac 库编译及前端构建通过；Mac 应用打包和运行未执行；Windows 构建 pending_environment；Windows/LOL 实机 optional_not_run。没有安装包、公开 fork、推送或发布。
 
-下一原子任务为 T06（V2 分帧、会话握手与版本协商），随后完成 T04.b 的真实接入。旧 LAN 开关仍保持关闭。可靠释放、热键、剪贴板、完整中文设置、后台生命周期和预览打包仍需按任务表实现与验收。
+下一原子任务为 T06.b（认证 QUIC control 持久流与运行时接入），随后完成 T04.b 的真实接入。旧 LAN 开关仍保持关闭。可靠释放、热键、剪贴板、完整中文设置、后台生命周期和预览打包仍需按任务表实现与验收。
