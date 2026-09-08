@@ -1064,17 +1064,20 @@
       "review_focus": [
         "工作流存在不等于运行通过；远程PR代码不获得发布秘密"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
-        "lol_runtime": "optional_not_run"
+        "lol_runtime": "optional_not_run",
+        "notes": "Native script actually passed on Mac; Windows workflow has not run; packaging is T22/T23."
       },
-      "evidence": [],
+      "evidence": [
+        "../T21-native-checks.md"
+      ],
       "blocked_reason": null
     },
     {

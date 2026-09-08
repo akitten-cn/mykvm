@@ -1,5 +1,6 @@
 # Logs
 logs
+.local-evidence/
 *.log
 npm-debug.log*
 yarn-debug.log*

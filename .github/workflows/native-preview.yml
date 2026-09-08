@@ -1,0 +1,45 @@
+name: Native non-interactive checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [feat/mac-first-kvm]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install pinned compiler in ephemeral runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+          rustup override set 1.98.1
+      - run: npm ci
+      - name: Check native platform without desktop input
+        run: node scripts/check-native.mjs
+      - name: Preserve actual logs and exit codes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-evidence-${{ matrix.os }}
+          path: .local-evidence/native/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
