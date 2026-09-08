@@ -117,3 +117,11 @@ Drop、WM_CLOSE、WM_NCDESTROY 和异常消息循环退出均有对应清理。�
 原 Mac 文本路径在每次轮询中执行 pbpaste，写入执行 pbcopy；现统一为已有 arboard 的进程内文本/图片后端。新增 NSPasteboard changeCount 只读适配器，工作线程比较计数后才读取内容；无目标时刷新计数基线，避免重连触发旧内容。
 
 锁文件只增加 mykvm 对已存在 `objc2-app-kit 0.3.2` 包的直接引用，没有引入新版本树。Mac 编译和静态无子进程检查通过；真实 pasteboard 读写因需要保存、修改和恢复用户内容而未执行。
+
+## T15 双向文本剪贴板增量核验
+
+旧 `run_clipboard_sync` 使用包内 cluster secret、从发现数据直接构造 endpoint，并以 1200 ms 时间窗作为图片回声兜底；同时整个入口因旧 LAN 门禁关闭而不可运行。新的 V2 文本路径不启用旧 LAN 数据：出站 endpoint 由 `TrustedPeerRegistry` 按 peer ID 和远端角色选取固定证书，入站先取得 `AuthenticatedPeer`，再核对机器方向和操作来源。TLS pinning 因此与应用层配对身份、角色和入站写入授权同时成立。
+
+同步状态只保留当前赢家与一次待识别的远端写入，不保存无限操作历史。stream handler 在剪贴板专用锁内完成判断、假/真实 writer 和提交，避免并发旧操作覆盖新操作；该锁不进入键鼠数据路径。生产日志不插入文本或摘要。旧 V1 代码仍由 `LEGACY_LAN_DATA_ENABLED=false` 隔离，当前运行时只调用新的无时间窗实现。
+
+Mac 条件编译与前端构建通过，真实剪贴板没有读取或改写。Windows listener 和 V2 接线尚未在 Windows 标准库或原生主机编译，状态保持 `pending_environment`。

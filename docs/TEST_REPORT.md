@@ -186,3 +186,11 @@ A33 新增纯策略测试区分 unchanged/empty/busy/unsupported/error，并证�
 Mac 文本读写已改为 arboard，生产源码不再包含 pbpaste/pbcopy。`MacClipboardWatcher` 先比较 NSPasteboard changeCount，目标不存在时只更新基线，有变化才读取。测试覆盖相同计数去重、计数推进以及中文/emoji/换行/长 UTF-8 的内容模型完整性；隔离检查核对 watcher 位于读取之前。
 
 实现 SHA `e2a3ccdb47ad1680ccef8f71dd182c2706ca614d` 的 `.local-evidence/t14-postcommit.log` 退出码 0：208 个 Rust 库测试、16 项隔离检查、前端 lint/build、Mac cargo check 和格式检查通过。A37 更新为 pass；A32 等待 T15 网络操作测试，M03 真实剪贴板保持 not_run。
+
+## T15 双向文本剪贴板
+
+A32 覆盖中文、emoji、CRLF/LF 和长 UTF-8 的 V2 MessagePack 往返，以及超限返回字节数且不截断。A34 用系统版本与摘要证明远端写回只抑制自身回声，随后不同文本立即形成新操作。A35 在双端并发、乱序和重复输入下按 Lamport 与稳定 peer/boot/sequence 排序收敛。A36 证明新引擎只记录启动基线，除非出现新系统版本或用户点击手动重发，否则不发送旧内容。A33 继续覆盖 busy/error/empty/unsupported，并新增 V2 系统写失败不提交、可重试的断言。
+
+生产接线要求出站目标存在于信任表且角色匹配；入站要求 TLS 认证 peer、方向角色和操作来源一致。真实 QUIC loopback 改用 `trusted_bulk_peer`，错误角色无法构造 endpoint。设置页提供文本阈值和手动重发，超限事件不含正文或摘要。
+
+实现 SHA `112539cd9a0e20851fc55c03df93d0b9c89ded78` 的提交后检查退出码 0：216 个 Rust 库测试、17 项隔离检查、前端 lint/build 和 Mac cargo check 通过。M03 未运行；Windows 构建 `pending_environment`；Windows/LOL 实机 `optional_not_run`。图片仍关闭在 V2 文本路径之外，资源预算由 T16 处理。

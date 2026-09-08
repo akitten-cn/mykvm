@@ -1001,17 +1001,28 @@
       "review_focus": [
         "日志不得存原文；不能用固定1秒静默窗口吞掉用户复制"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../../src-tauri/src/clipboard_sync.rs",
+        "../../src-tauri/src/protocol_v2.rs ClipboardTextOperation",
+        "../../src-tauri/src/lib.rs handle_v2_clipboard_operation/run_clipboard_sync",
+        "../../src-tauri/src/quic_transport.rs trusted_bulk_peer",
+        "../../src/App.tsx clipboard limit/manual resend",
+        "../T15-clipboard-sync.md",
+        ".local-evidence/t15-postcommit-rust.log",
+        ".local-evidence/t15-postcommit-isolation.log",
+        ".local-evidence/t15-postcommit-build.log",
+        ".local-evidence/t15-postcommit-mac-check.log"
+      ],
       "blocked_reason": null
     },
     {
