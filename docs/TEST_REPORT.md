@@ -25,6 +25,12 @@
 
 开发过程中路由补充测试暴露了重复 Ready 覆盖会话和部分准备失败清理问题，已修复并通过回归。测试默认使用 FakeCapture/FakeInjector，不调用真实键鼠或剪贴板。
 
+## T20 完整适用回归
+
+实现 SHA `6effc789ff0ccac45470af0494d353f651dc4bf9` 在 Darwin arm64 上通过 225 个 Rust 库测试、22 个隔离测试、前端 lint/build、核心文件格式检查和 Mac `cargo check --locked --lib`，8 个步骤退出码均为 0。证据为 `.local-evidence/t20-postcommit-final.log` 及 `.local-evidence/native/` 分步日志。A01、A02、A04、A07、A17 的生产接线已经完成，对应状态由早期的部分证据更新为 pass。
+
+严格全仓 fmt 退出码 1，严格 clippy 退出码 101（99 项），分别保存在 `.local-evidence/t20-full-fmt.log` 和 `.local-evidence/t20-strict-clippy.log`。这些仍是 T01 同类的仓库基线债务；本轮发现的图片选项求值和端口溢出诊断已修复。Mac app/dmg 留给 T22，Windows build 为 `pending_environment`，所有实机项保持未运行。
+
 纯核心通过不等于 A01–A04 等端到端用例通过；这些用例保留 not_run 并记录部分证据。认证正反测试、协议回环、真实 Windows 分支编译、可靠释放集成、资源数据均尚未完成。详见 taskboard、testcases 和 SOURCE_AUDIT。
 
 ## T05.b 连接授权增量

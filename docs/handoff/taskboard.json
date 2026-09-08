@@ -1327,17 +1327,23 @@
       "review_focus": [
         "没有运行不得勾PASS；跳过不算通过；严重安全失败禁止真实激活但不挡无关文档工作"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../T20-regression-review.md",
+        "implementation SHA 6effc789ff0ccac45470af0494d353f651dc4bf9",
+        ".local-evidence/t20-postcommit-final.log",
+        ".local-evidence/t20-full-fmt.log (known baseline failure)",
+        ".local-evidence/t20-strict-clippy.log (known baseline failure)"
+      ],
       "blocked_reason": null
     },
     {

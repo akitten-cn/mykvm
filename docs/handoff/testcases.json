@@ -10,11 +10,13 @@
       "method": "FakeRoute/FakePeer 重复请求同一目标",
       "expected": "只产生一次准备/激活，不意外切回",
       "blocking_development": true,
-      "status": "not_run",
-      "partial_evidence": [
-        "../T04a-routing.md"
-      ],
-      "remaining": "Production hook/V2 adapter integration not complete; core simulation passed."
+      "status": "pass",
+      "evidence": [
+        "../T04a-routing.md",
+        "../T20-regression-review.md",
+        "routing::tests::a01_same_target_is_idempotent_in_preparation_and_remote",
+        "controller_client::tests::repeated_begin_does_not_replace_in_flight_connection"
+      ]
     },
     {
       "id": "A02",
@@ -23,11 +25,13 @@
       "method": "transport 永久不回应，调用 GoLocal",
       "expected": "本地覆盖和捕获恢复请求立即可观察",
       "blocking_development": true,
-      "status": "not_run",
-      "partial_evidence": [
-        "../T04a-routing.md"
-      ],
-      "remaining": "Production hook/V2 adapter integration not complete; core simulation passed."
+      "status": "pass",
+      "evidence": [
+        "../T04a-routing.md",
+        "../T04b3b1-controller-runtime.md",
+        "routing::tests::a02_return_restores_before_caller_can_send_end",
+        "controller_runtime::tests::explicit_return_restores_before_end_is_delivered"
+      ]
     },
     {
       "id": "A03",
@@ -49,11 +53,12 @@
       "method": "假时钟推进，始终按住按钮/修饰键",
       "expected": "超时取消，不丢本机输入",
       "blocking_development": true,
-      "status": "not_run",
-      "partial_evidence": [
-        "../T04a-routing.md"
-      ],
-      "remaining": "Production hook/V2 adapter integration not complete; core simulation passed."
+      "status": "pass",
+      "evidence": [
+        "../T04a-routing.md",
+        "../T04b3b2b-windows-wiring.md",
+        "routing::tests::a04_held_keys_timeout_without_committing_or_swallowing"
+      ]
     },
     {
       "id": "A05",
@@ -82,11 +87,13 @@
       "method": "阻塞路由 actor 后触发紧急标志",
       "expected": "钩子优先本地放行，不排普通队列",
       "blocking_development": true,
-      "status": "not_run",
-      "partial_evidence": [
-        "../T04a-routing.md"
-      ],
-      "remaining": "Production hook/V2 adapter integration not complete; core simulation passed."
+      "status": "pass",
+      "evidence": [
+        "../T04a-routing.md",
+        "../T18-settings-diagnostics.md",
+        "routing::tests::a07_emergency_does_not_need_coordinator_lock",
+        "game_mode::tests::return_actions_set_local_gate_before_queue_and_have_priority"
+      ]
     },
     {
       "id": "A08",
@@ -189,9 +196,14 @@
       "method": "End 后补发 Pong/Commit/位置",
       "expected": "终止会话保持无效",
       "blocking_development": true,
-      "status": "not_run",
-      "partial_evidence": ["../T06a-protocol.md", "../T06c-input-stream.md", "protocol_v2::tests::a17_input_gate_rejects_frames_after_end"],
-      "remaining": "Protocol handshake and input gate remain ended; T04.b/T07 production-handler integration remains."
+      "status": "pass",
+      "evidence": [
+        "../T06a-protocol.md",
+        "../T06c-input-stream.md",
+        "../T19-safe-loopback.md",
+        "protocol_v2::tests::a17_input_gate_rejects_frames_after_end",
+        "session_runtime::tests::end_releases_and_late_input_stays_rejected"
+      ]
     },
     {
       "id": "A18",
