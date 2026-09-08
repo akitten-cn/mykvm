@@ -78,3 +78,5 @@ QUIC input stream 无论正常 EOF、解码失败还是 handler 拒绝都会调�
 ## T04.b3.a controller handshake 增量
 
 控制端握手纯逻辑生成 Hello/Prepare，拒绝错误 request、未就绪 Ready 和错误 CommitAck，并以控制端 boot、接收端 boot 和随机 nonce 构造新 SessionId。只有 Active 会话可发 Ping/End；Pong 必须匹配当前 session、已发送 ping 序列和单调远端进度。2 项定向测试通过。此阶段尚未接 Router、QUIC handle 或 Windows 捕获，不把纯逻辑测试计为实际切换可用。
+
+提交后复核记录 SHA `212d3c7772976af60e58b9c5ea40359b1c249ed0`，167 个 Rust 库测试及其余 7 个检查步骤退出码均为 0，日志为本地 `.local-evidence/t04b3a-postcommit.log`。

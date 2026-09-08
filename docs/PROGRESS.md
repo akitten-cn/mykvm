@@ -21,7 +21,7 @@
 |T07.b|完成|input stream 关闭立即结束并释放；3 秒活动租约、Ping 刷新、释放失败状态和 AppRuntime 可见错误；V2 原生接收门禁已打开|
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
 
-最新受测代码 SHA：`9c887bb5cf4ced1e6ae20e1d676a5ed4ba5a7551`。提交后完整检查再次通过：151 个 Rust 库测试、认证 QUIC 本机回环、V2 分帧、队列边界和会话门控，以及 7 项隔离检查、前端 lint/build、Mac cargo check 和新增核心格式检查；证据日志为本地 `.local-evidence/t06c-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
+最新受测代码 SHA：`212d3c7772976af60e58b9c5ea40359b1c249ed0`。提交后完整检查通过：167 个 Rust 库测试、8 项隔离检查、前端 lint/build、Mac cargo check 和新增核心格式检查；证据日志为本地 `.local-evidence/t04b3a-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
 
 平台证据独立记录：Mac 库编译及前端构建通过；Mac 应用打包和运行未执行；Windows 构建 pending_environment；Windows/LOL 实机 optional_not_run。没有安装包、公开 fork、推送或发布。
 
