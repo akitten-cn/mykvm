@@ -2,6 +2,10 @@
 //! This is deliberately not controlled by IPC or imported user configuration.
 pub(crate) const PRIVILEGED_FEATURES_ENABLED: bool = false;
 
+// Keep V1 disabled permanently. T05/T06 must provide a separate authenticated
+// connection/session path, not flip this flag to revive address-based authority.
+pub(crate) const LEGACY_LAN_DATA_ENABLED: bool = false;
+
 pub(crate) fn require_privileged_features() -> Result<(), String> {
     if PRIVILEGED_FEATURES_ENABLED {
         Ok(())

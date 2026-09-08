@@ -288,18 +288,35 @@
       "review_focus": [
         "发现广播不得直接成为信任；不能只验 SocketAddr 或网络自报 peer_id"
       ],
-      "implementation": "todo",
+      "implementation": "in_progress",
       "review": "pending",
       "verification": {
-        "automated": "not_run",
+        "automated": "pass",
         "mac_build": "not_run",
         "mac_runtime": "not_run",
         "windows_build": "not_run",
         "windows_runtime": "optional_not_run",
-        "lol_runtime": "optional_not_run"
+        "lol_runtime": "optional_not_run",
+        "notes": "Only fail-closed legacy gate verified; A10-A12 authenticated connection acceptance not complete."
       },
-      "evidence": [],
-      "blocked_reason": null
+      "evidence": [
+        "../T05-auth-audit.md"
+      ],
+      "blocked_reason": null,
+      "subtasks": [
+        {
+          "id": "T05.a",
+          "title": "核验授权边界并关闭旧 LAN 入口",
+          "implementation": "done",
+          "review": "approved"
+        },
+        {
+          "id": "T05.b",
+          "title": "逐设备持久信任与 QUIC 连接绑定",
+          "implementation": "todo",
+          "review": "pending"
+        }
+      ]
     },
     {
       "id": "T06",

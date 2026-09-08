@@ -707,6 +707,13 @@ pub fn input_runtime_status(
     layout: &LayoutState,
     native_layout: &LayoutState,
 ) -> (NativeStageStatus, NativeStageStatus) {
+    if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
+        return (
+            crate::legacy_data_blocked_status(),
+            crate::legacy_data_blocked_status(),
+        );
+    }
+
     let targets = build_input_targets(layout, native_layout);
     let capture = if layout.input_mode == "receive" {
         receive_only_status()
@@ -728,6 +735,10 @@ pub fn input_runtime_status(
 }
 
 fn input_receive_status(layout: &LayoutState, request_permission: bool) -> NativeStageStatus {
+    if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
+        return crate::legacy_data_blocked_status();
+    }
+
     let _ = request_permission;
 
     #[cfg(target_os = "macos")]
@@ -1732,6 +1743,10 @@ pub fn handle_input_datagram(
     input_events: &Arc<AtomicU64>,
     clipboard_target: &Arc<Mutex<Option<ClipboardTarget>>>,
 ) -> bool {
+    if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
+        return false;
+    }
+
     if let Some(packet) = decode_input_packet(payload) {
         if packet.protocol != INPUT_PROTOCOL {
             return false;

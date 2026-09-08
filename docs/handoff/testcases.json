@@ -10,7 +10,11 @@
       "method": "FakeRoute/FakePeer 重复请求同一目标",
       "expected": "只产生一次准备/激活，不意外切回",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": [
+        "../T04a-routing.md"
+      ],
+      "remaining": "Production hook/V2 adapter integration not complete; core simulation passed."
     },
     {
       "id": "A02",
@@ -19,7 +23,11 @@
       "method": "transport 永久不回应，调用 GoLocal",
       "expected": "本地覆盖和捕获恢复请求立即可观察",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": [
+        "../T04a-routing.md"
+      ],
+      "remaining": "Production hook/V2 adapter integration not complete; core simulation passed."
     },
     {
       "id": "A03",
@@ -28,7 +36,11 @@
       "method": "Prepare 后取消，再注入 Ready/CommitAck",
       "expected": "保持本地，不激活已取消请求",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": [
+        "../T04a-routing.md"
+      ],
+      "remaining": "Production hook/V2 adapter integration not complete; core simulation passed."
     },
     {
       "id": "A04",
@@ -37,7 +49,11 @@
       "method": "假时钟推进，始终按住按钮/修饰键",
       "expected": "超时取消，不丢本机输入",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": [
+        "../T04a-routing.md"
+      ],
+      "remaining": "Production hook/V2 adapter integration not complete; core simulation passed."
     },
     {
       "id": "A05",
@@ -64,7 +80,11 @@
       "method": "阻塞路由 actor 后触发紧急标志",
       "expected": "钩子优先本地放行，不排普通队列",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": [
+        "../T04a-routing.md"
+      ],
+      "remaining": "Production hook/V2 adapter integration not complete; core simulation passed."
     },
     {
       "id": "A08",
@@ -82,7 +102,11 @@
       "method": "FocusPort 返回 denied/unavailable",
       "expected": "留本地且产生明确错误，不循环抢前台",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": [
+        "../T04a-routing.md"
+      ],
+      "remaining": "Production hook/V2 adapter integration not complete; core simulation passed."
     },
     {
       "id": "A10",
@@ -361,7 +385,11 @@
       "method": "设置/安装脚本静态测试",
       "expected": "无默认 SYSTEM helper/登录前控制启用",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": [
+        "../T02-isolation.md"
+      ],
+      "scope": "static source/packaging checks; no native install performed"
     },
     {
       "id": "A41",
@@ -379,7 +407,11 @@
       "method": "配置、安装脚本、前端调用与更新源扫描",
       "expected": "不覆盖上游标识/用户配置，不自动安装上游更新",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": [
+        "../T02-isolation.md"
+      ],
+      "scope": "static source/packaging checks; no native install performed"
     },
     {
       "id": "A43",
@@ -406,7 +438,12 @@
       "method": "原生 M4 执行 lint/build/cargo test 和 app 构建",
       "expected": "保存退出码、完整 SHA、产物架构和真实路径",
       "blocking_development": false,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": [
+        "../SOURCE_AUDIT.md",
+        "../T21-native-checks.md"
+      ],
+      "remaining": "Mac lib check/test and web build passed; app bundle not generated."
     },
     {
       "id": "M02",
@@ -469,7 +506,10 @@
       "method": "可用的原生 CI 运行 cfg Windows 编译和 lib 测试",
       "expected": "真实日志；不推导为鼠标钩子运行通过",
       "blocking_development": false,
-      "status": "not_run"
+      "status": "pending_environment",
+      "evidence": [
+        "../T21-native-checks.md"
+      ]
     },
     {
       "id": "W02",

@@ -277,6 +277,14 @@ struct NativeStageStatus {
     detail: String,
 }
 
+fn legacy_data_blocked_status() -> NativeStageStatus {
+    NativeStageStatus {
+        state: "idle".into(),
+        detail: "当前为开发版本：旧 LAN 协议已禁用，V2 连接授权与会话接入尚未完成。请继续使用原有控制工具。".into(),
+    }
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LanPeer {
@@ -801,6 +809,10 @@ impl AppRuntime {
     }
 
     fn start_discovery(&self) -> Result<(), String> {
+        if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
+            return Err(legacy_data_blocked_status().detail);
+        }
+
         let mut discovery_stop = self
             .discovery_stop
             .lock()
@@ -1020,6 +1032,11 @@ impl AppRuntime {
     }
 
     fn start_input(&self, layout: LayoutState) -> (NativeStageStatus, NativeStageStatus) {
+        if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
+            self.input_receive_enabled.store(false, Ordering::Relaxed);
+            return (legacy_data_blocked_status(), legacy_data_blocked_status());
+        }
+
         sync_layout_peer_presence(&self.layout, &self.peers);
         self.input_receive_enabled
             .store(layout.input_mode == "receive", Ordering::Relaxed);
@@ -1070,6 +1087,11 @@ impl AppRuntime {
     }
 
     fn start_clipboard(&self, layout: LayoutState) -> NativeStageStatus {
+        if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
+            self.clipboard_receive_enabled.store(false, Ordering::Relaxed);
+            return legacy_data_blocked_status();
+        }
+
         if !layout.clipboard_sync {
             self.stop_clipboard();
             return clipboard_disabled_status();
@@ -2076,6 +2098,10 @@ fn send_files_to_device(
     paths: Vec<String>,
     state: tauri::State<'_, AppRuntime>,
 ) -> Result<FileTransferSummary, String> {
+    if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
+        return Err(legacy_data_blocked_status().detail);
+    }
+
     let state = state.inner();
     let device_id = device_id.as_str();
     if paths.is_empty() {
@@ -4696,6 +4722,10 @@ fn handle_clipboard_packet(
     clipboard_echo_until: &Arc<Mutex<Option<Instant>>>,
     clipboard_last_sequences: &Arc<Mutex<HashMap<String, u64>>>,
 ) -> bool {
+    if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
+        return false;
+    }
+
     handle_clipboard_packet_with_writer(
         payload,
         layout,
@@ -5159,6 +5189,10 @@ fn handle_file_transfer_packet(
     transfers: &Arc<Mutex<HashMap<String, IncomingFileTransfer>>>,
     app: &AppHandle,
 ) -> bool {
+    if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
+        return false;
+    }
+
     let Some(packet) = decode_wire_packet::<FileTransferPacket>(payload) else {
         return false;
     };

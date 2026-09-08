@@ -58,3 +58,16 @@ test('A42: fork cannot automatically run the upstream release workflow', () => {
     assert.doesNotMatch(read(`.github/workflows/${file}`), /TAURI_SIGNING_PRIVATE_KEY|contents: write|gh release/)
   }
 })
+
+test('T05.a: legacy LAN paths cannot activate before V2 authentication exists', () => {
+  assert.match(read('src-tauri/src/fork_policy.rs'), /LEGACY_LAN_DATA_ENABLED: bool = false/)
+  const lib = read('src-tauri/src/lib.rs')
+  for (const name of ['start_discovery', 'start_input', 'start_clipboard', 'handle_clipboard_packet',
+    'handle_file_transfer_packet', 'send_files_to_device']) {
+    assert.match(lib, new RegExp(`fn ${name}\\([\\s\\S]*?\\{\\s*if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED`))
+  }
+  const input = read('src-tauri/src/input.rs')
+  for (const name of ['handle_input_datagram', 'input_receive_status', 'input_runtime_status']) {
+    assert.match(input, new RegExp(`fn ${name}\\([\\s\\S]*?\\{\\s*if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED`))
+  }
+})
