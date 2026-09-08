@@ -6,6 +6,7 @@ use std::{
     net::UdpSocket,
     path::PathBuf,
     sync::{mpsc, Arc, Mutex},
+    thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -16,7 +17,8 @@ use crate::{
         SessionId,
     },
     quic_transport::{
-        self, PeerRole, TransportHandle, TrustedPeer, TrustedPeerRegistry, PROTOCOL_VERSION,
+        self, AuthenticatedPeer, PeerRole, TransportHandle, TrustedPeer, TrustedPeerRegistry,
+        PROTOCOL_VERSION,
     },
     session_runtime::{ReceiverSessionRuntime, SessionRuntimeError},
     shared_input::InputCommand,
@@ -55,6 +57,17 @@ fn unique_root(label: &str) -> PathBuf {
     ))
 }
 
+fn wait_until(mut condition: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !condition() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "loopback condition timed out"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
 #[test]
 fn m05_authenticated_loopback_applies_reliable_and_motion_only_to_fake_injector() {
     let root = unique_root("input");
@@ -63,6 +76,7 @@ fn m05_authenticated_loopback_applies_reliable_and_motion_only_to_fake_injector(
         FakeInjector::default(),
     )));
     let errors = Arc::new(Mutex::new(Vec::<String>::new()));
+    let bound_peer = Arc::new(Mutex::new(None::<AuthenticatedPeer>));
     let (applied_tx, applied_rx) = mpsc::channel();
 
     let runtime_for_motion = Arc::clone(&runtime);
@@ -70,6 +84,7 @@ fn m05_authenticated_loopback_applies_reliable_and_motion_only_to_fake_injector(
     let motion_tx = applied_tx.clone();
     let runtime_for_control = Arc::clone(&runtime);
     let errors_for_control = Arc::clone(&errors);
+    let bound_peer_for_control = Arc::clone(&bound_peer);
     let runtime_for_input = Arc::clone(&runtime);
     let errors_for_input = Arc::clone(&errors);
     let input_tx = applied_tx.clone();
@@ -99,6 +114,7 @@ fn m05_authenticated_loopback_applies_reliable_and_motion_only_to_fake_injector(
         }),
         Arc::new(|_, _| false),
         Arc::new(move |frame, peer| {
+            *bound_peer_for_control.lock().expect("bound peer lock") = Some(peer.clone());
             match runtime_for_control
                 .lock()
                 .expect("receiver runtime lock")
@@ -286,6 +302,24 @@ fn m05_authenticated_loopback_applies_reliable_and_motion_only_to_fake_injector(
         Ok("motion:Applied")
     );
 
+    let mut stale_motion = motion.clone();
+    stale_motion.sequence = 1;
+    endpoints
+        .controller
+        .send_datagram(
+            endpoints.controller.peer(
+                format!("127.0.0.1:{}", endpoints.receiver.port()),
+                endpoints.receiver.public_key().into(),
+                PROTOCOL_VERSION,
+            ),
+            protocol_v2::encode_motion(&stale_motion).expect("encode stale motion fixture"),
+        )
+        .expect("send out-of-order motion");
+    assert_eq!(
+        applied_rx.recv_timeout(Duration::from_secs(2)).as_deref(),
+        Ok("motion:Stale")
+    );
+
     input
         .try_send(&CriticalFrame {
             session_id,
@@ -303,9 +337,9 @@ fn m05_authenticated_loopback_applies_reliable_and_motion_only_to_fake_injector(
         Ok("input:2")
     );
 
-    let runtime = runtime.lock().expect("receiver runtime lock");
+    let runtime_snapshot = runtime.lock().expect("receiver runtime lock");
     assert_eq!(
-        runtime.injector().events,
+        runtime_snapshot.injector().events,
         vec![
             InputCommand::Key {
                 key_code: 0x41,
@@ -323,4 +357,186 @@ fn m05_authenticated_loopback_applies_reliable_and_motion_only_to_fake_injector(
         ]
     );
     assert!(errors.lock().expect("error lock").is_empty());
+    drop(runtime_snapshot);
+
+    // Start a second generation on the same authenticated control connection.
+    // A frame from the ended session must fail the production input callback;
+    // closing that stream releases a key held by the current generation.
+    control
+        .try_send(ControlFrame::EndSession {
+            session_id,
+            reason: "fixture generation change".into(),
+        })
+        .expect("end first fixture session");
+    wait_until(|| !runtime.lock().expect("runtime lock").health().active);
+    control
+        .try_send(ControlFrame::Hello {
+            boot_id: BootId([4; 16]),
+            peer_id: "fixture-controller".into(),
+            role: DeviceRole::Controller,
+            capabilities: vec!["control_v2".into(), "input_v2".into()],
+        })
+        .expect("send second-generation hello");
+    control
+        .try_send(ControlFrame::Prepare {
+            request_id: 8,
+            target_display: "mac-main".into(),
+            layout_revision: 1,
+        })
+        .expect("prepare second generation");
+    assert!(matches!(
+        response_rx.recv_timeout(Duration::from_secs(2)),
+        Ok(ControlFrame::Ready { request_id: 8, .. })
+    ));
+    let second_session = SessionId {
+        controller_boot: BootId([4; 16]),
+        receiver_boot: BootId([2; 16]),
+        nonce: [5; 16],
+    };
+    control
+        .try_send(ControlFrame::Commit {
+            request_id: 8,
+            session_id: second_session,
+        })
+        .expect("commit second generation");
+    assert_eq!(
+        response_rx.recv_timeout(Duration::from_secs(2)),
+        Ok(ControlFrame::CommitAck {
+            session_id: second_session,
+        })
+    );
+    input
+        .try_send(&CriticalFrame {
+            session_id: second_session,
+            sequence: 1,
+            event: CriticalEvent::Key {
+                key_code: 0x41,
+                scan_code: 30,
+                extended: false,
+                down: true,
+            },
+        })
+        .expect("hold key in second generation");
+    assert_eq!(
+        applied_rx.recv_timeout(Duration::from_secs(2)).as_deref(),
+        Ok("input:1")
+    );
+    input
+        .try_send(&CriticalFrame {
+            session_id,
+            sequence: 3,
+            event: CriticalEvent::Key {
+                key_code: 0x42,
+                scan_code: 48,
+                extended: false,
+                down: true,
+            },
+        })
+        .expect("queue old-session frame");
+    wait_until(|| !runtime.lock().expect("runtime lock").health().active);
+    let runtime_after_close = runtime.lock().expect("runtime lock");
+    assert_eq!(
+        &runtime_after_close.injector().events[3..],
+        &[
+            InputCommand::Key {
+                key_code: 0x41,
+                down: true,
+            },
+            InputCommand::Key {
+                key_code: 0x41,
+                down: false,
+            },
+        ]
+    );
+    assert!(runtime_after_close
+        .injector()
+        .events
+        .iter()
+        .all(|event| !matches!(event, InputCommand::Key { key_code: 0x42, .. })));
+    assert!(errors
+        .lock()
+        .expect("error lock")
+        .iter()
+        .any(|error| error.contains("WrongSession")));
+    drop(runtime_after_close);
+
+    // A third generation verifies the same FakeInjector ledger on lease expiry.
+    control
+        .try_send(ControlFrame::Hello {
+            boot_id: BootId([6; 16]),
+            peer_id: "fixture-controller".into(),
+            role: DeviceRole::Controller,
+            capabilities: vec!["control_v2".into(), "input_v2".into()],
+        })
+        .expect("send timeout-generation hello");
+    control
+        .try_send(ControlFrame::Prepare {
+            request_id: 9,
+            target_display: "mac-main".into(),
+            layout_revision: 1,
+        })
+        .expect("prepare timeout generation");
+    assert!(matches!(
+        response_rx.recv_timeout(Duration::from_secs(2)),
+        Ok(ControlFrame::Ready { request_id: 9, .. })
+    ));
+    let timeout_session = SessionId {
+        controller_boot: BootId([6; 16]),
+        receiver_boot: BootId([2; 16]),
+        nonce: [7; 16],
+    };
+    control
+        .try_send(ControlFrame::Commit {
+            request_id: 9,
+            session_id: timeout_session,
+        })
+        .expect("commit timeout generation");
+    assert_eq!(
+        response_rx.recv_timeout(Duration::from_secs(2)),
+        Ok(ControlFrame::CommitAck {
+            session_id: timeout_session,
+        })
+    );
+    let authenticated = bound_peer
+        .lock()
+        .expect("bound peer lock")
+        .clone()
+        .expect("authenticated loopback peer");
+    {
+        let mut runtime = runtime.lock().expect("runtime lock");
+        runtime
+            .handle_input_at(
+                &CriticalFrame {
+                    session_id: timeout_session,
+                    sequence: 1,
+                    event: CriticalEvent::Key {
+                        key_code: 0x43,
+                        scan_code: 46,
+                        extended: false,
+                        down: true,
+                    },
+                },
+                &authenticated,
+                110,
+            )
+            .expect("hold key before lease expiry");
+    }
+    let mut runtime = runtime.lock().expect("runtime lock");
+    assert!(runtime
+        .expire_if_needed(3_110)
+        .expect("expire receiver lease"));
+    assert!(!runtime.health().active);
+    assert_eq!(
+        &runtime.injector().events[5..],
+        &[
+            InputCommand::Key {
+                key_code: 0x43,
+                down: true,
+            },
+            InputCommand::Key {
+                key_code: 0x43,
+                down: false,
+            },
+        ]
+    );
 }
