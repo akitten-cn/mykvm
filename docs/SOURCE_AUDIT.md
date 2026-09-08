@@ -105,3 +105,9 @@ Caps Lock 恢复普通 macOS 键码 57 注入，不再假设系统输入源快�
 原有 QUIC 回环测试分别验证证书身份、control 或 input，但没有把认证 transport 接到 ReceiverSessionRuntime 和 FakeInjector。新增 test-only 模块使用两套独立持久身份目录，运行真实本机 QUIC control/input/datagram，并由同一个接收会话处理器完成握手、可靠按键和 motion。测试后 endpoint 关闭、临时目录删除。
 
 故障序列跨三个 boot generation：旧 motion 不作用；结束会话的关键帧不能进入新会话；handler 拒绝导致的 stream close 释放账本；租约超时也释放账本。模块由 `#[cfg(test)]` 隔离，生产构建不会暴露 fixture 凭据、测试端口或 FakeInjector 入口。
+
+## T13 Windows 剪贴板增量核验
+
+原 Windows 路径与其他平台一样由 120 ms/轮询读取 arboard，无法区分 busy、empty、unsupported 和错误。现有普通用户后台线程新增 message-only window 和剪贴板格式监听；窗口只发送 sequence 通知，内容在工作线程以原生 Unicode handle 读取。三次有界 busy 重试和读取前后 sequence 比较阻止格式切换时采用陈旧文本。
+
+Drop、WM_CLOSE、WM_NCDESTROY 和异常消息循环退出均有对应清理。源码没有活动用户会话枚举、SYSTEM helper 或跨会话读取。Mac 条件编译和静态 API 核验通过，但本机缺 Windows target 标准库，因此函数签名尚需 W01 原生编译确认；旧 LAN 总门禁未因本任务翻转。

@@ -902,17 +902,21 @@
       "review_focus": [
         "Mac编译不覆盖此分支；必须保留明确 Windows CI 任务"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../T13-windows-clipboard.md",
+        "implementation SHA 3a5f7dc5f0e010c6881b04b1259986ec2105ac13",
+        ".local-evidence/t13-postcommit.log"
+      ],
       "blocked_reason": null
     },
     {

@@ -174,3 +174,9 @@ M05 在本机创建两个独立临时证书目录和真实 QUIC endpoint，经�
 同一回环把后发的较小 motion sequence 判为 stale；第一代会话结束后，生产 input handler 拒绝其旧帧并通过断流回调释放第二代按住的键，由此完成 A16 的剩余生产接线证据。第三代会话以可控时间触发 3 秒租约并验证 key-up。既有 A10、A18、A22、A24、A26 继续由各自定向测试覆盖。
 
 最终实现 SHA `c184091c6762118c56faf8494cc3ee6215cb0841` 的 `.local-evidence/t19-postcommit.log` 退出码 0：206 个 Rust 库测试、14 项隔离检查、前端 lint/build、Mac cargo check 和相关格式检查通过。M05、A16 更新为 pass；没有启动应用或触碰真实桌面/剪贴板。
+
+## T13 Windows 原生剪贴板
+
+A33 新增纯策略测试区分 unchanged/empty/busy/unsupported/error，并证明 busy 重试有硬上限、格式 sequence 变化时旧文本被丢弃。生产同步循环只接受 Content；既有接收测试证明系统写失败不会确认或清空旧内容。隔离检查核对 `AddClipboardFormatListener`、`WM_CLIPBOARDUPDATE`、sequence 读取、Remove/Destroy/上下文释放和消息循环退出路径，同时禁止 SYSTEM/跨会话读取。
+
+实现 SHA `3a5f7dc5f0e010c6881b04b1259986ec2105ac13` 的 `.local-evidence/t13-postcommit.log` 退出码 0：207 个 Rust 库测试、15 项隔离检查、前端 lint/build、Mac cargo check 和 clipboard 格式检查通过。A33 更新为 pass；A38 留待 T16，W01 为 pending_environment。Windows 条件代码尚未在 Windows 标准库或原生主机编译，未宣称运行通过。

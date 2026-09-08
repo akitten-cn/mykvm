@@ -31,6 +31,7 @@
 |T10.b|完成|1024 项有界 hook 事件队列；回调只做缓存/原子判断、事件复制和 try_send，慢路径移至捕获线程；满队列失败开放|
 |T11|完成|Windows 屏幕外原生焦点窗口；每次请求单次前台交接，失败保留本地并给出 Alt+Tab 中文提示，返回时单次恢复原窗口|
 |T12|完成|Mac 默认保留 Ctrl/Command/Option，显式互换预设；左右键与按下时映射冻结；Caps 按普通键注入，权限失败拒绝会话|
+|T13|完成|Windows 用户会话 message-only window 事件通知；类型化读取、有界 busy 重试、格式序号校验和对称注销；Windows 编译待环境|
 |T19|完成|test-only 双身份真实 QUIC 回环；FakeInjector 覆盖可靠输入、motion 乱序、旧 session、断流释放和租约释放|
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
 
@@ -42,4 +43,4 @@ T09 当前实现 SHA：`9aed9a81aa928ad67ba2bf298d49b63027b44dd6`。提交后检
 
 设置界面 SHA `d445e9b9757077500f896534b94a1104f3745edd` 已补三个控制热键的中英文录入和说明，前端检查日志为 `.local-evidence/t09d-postcommit.log`。T10.a SHA `2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7` 完成游戏模式最短放行；T10.b SHA `15fd004b5f471f7f83cc3b86fffb1a448e74dfaf` 将其余重路径移出 hook，检查日志为 `.local-evidence/t10b-postcommit.log`。T11 SHA `19191db65aaac1743823538df3d4c4ad066e6c5b` 完成 Windows 单次焦点交接与失败提示，检查日志为 `.local-evidence/t11-postcommit.log`。T08.d SHA `3dfca829cc74e7d4ff4c47ce2fb826ecd10af2ee` 完成显示布局版本和坐标门控。下一原子任务审查控制端总门禁；Windows 构建和双机试用状态仍独立保留。
 
-控制端门禁审查 SHA `63154dcbfc4ff68ccb0d1a911c1652b0ba54fde9` 已开启认证 V2 Windows 控制路径，旧 LAN 和特权路径继续关闭。T12 实现 SHA `7bf95bb7ebf89c93a04dda839e3423e681935c9d` 完成显式 Mac 键位策略；M04/M06 真实权限、键位和输入法测试未运行。T19 最终实现 SHA `c184091c6762118c56faf8494cc3ee6215cb0841` 完成 test-only 双身份安全回环，提交后 206 个 Rust 库测试、14 项隔离检查、前端 lint/build 和 Mac cargo check 通过，日志为 `.local-evidence/t19-postcommit.log`。下一阶段进入 T13–T16 双向原生剪贴板实现。
+控制端门禁审查 SHA `63154dcbfc4ff68ccb0d1a911c1652b0ba54fde9` 已开启认证 V2 Windows 控制路径，旧 LAN 和特权路径继续关闭。T12 实现 SHA `7bf95bb7ebf89c93a04dda839e3423e681935c9d` 完成显式 Mac 键位策略；M04/M06 真实权限、键位和输入法测试未运行。T19 最终实现 SHA `c184091c6762118c56faf8494cc3ee6215cb0841` 完成 test-only 双身份安全回环。T13 SHA `3a5f7dc5f0e010c6881b04b1259986ec2105ac13` 完成 Windows 原生通知和类型化读取，日志为 `.local-evidence/t13-postcommit.log`；Windows 编译仍为 pending_environment。下一原子任务为 T14 Mac 进程内剪贴板后端。
