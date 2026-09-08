@@ -39,7 +39,8 @@ test('A42: updater is disabled at registration, capability, API and UI', () => {
 
 test('A40: packaging does not install helpers, alter trust or copy installed apps', () => {
   for (const path of ['scripts/build-tauri-assets.mjs', 'scripts/build-mac-arm.sh',
-    'scripts/install-mac-app.sh', 'scripts/sign-mac-app.sh', 'src-tauri/build.rs']) {
+    'scripts/build-windows-preview.ps1', 'scripts/install-mac-app.sh',
+    'scripts/sign-mac-app.sh', 'src-tauri/build.rs']) {
     assert.doesNotMatch(read(path), /security add|delete-keychain|xattr -|pkill|osascript|ditto|input-helper|sudo/)
   }
   const scripts = json('package.json').scripts
@@ -47,6 +48,9 @@ test('A40: packaging does not install helpers, alter trust or copy installed app
   assert.equal(scripts['mac:sign-local'], undefined)
   assert.equal(scripts['mac:install-local'], undefined)
   assert.equal(scripts['tauri:build:mac-signed'], undefined)
+  const workflow = read('.github/workflows/native-preview.yml')
+  assert.match(workflow, /runner\.os == 'Windows'[\s\S]*?build-windows-preview\.ps1/)
+  assert.doesNotMatch(workflow, /gh release|actions\/create-release|contents:\s*write|id-token:\s*write/)
 })
 
 test('A40: privileged routes fail closed, even when called outside the UI', () => {
