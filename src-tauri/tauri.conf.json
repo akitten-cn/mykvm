@@ -10,19 +10,7 @@
     "beforeBuildCommand": "node scripts/build-tauri-assets.mjs"
   },
   "app": {
-    "windows": [
-      {
-        "title": "MyKVM Local",
-        "width": 1480,
-        "height": 960,
-        "minWidth": 1200,
-        "minHeight": 760,
-        "resizable": true,
-        "visible": false,
-        "theme": "Dark",
-        "fullscreen": false
-      }
-    ],
+    "windows": [],
     "macOSPrivateApi": true,
     "security": {
       "csp": null

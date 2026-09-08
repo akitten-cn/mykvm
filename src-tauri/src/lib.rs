@@ -96,6 +96,8 @@ const SINGLE_INSTANCE_MUTEX_NAME: &str = "Local\\MyKVMLocal_SingleInstance";
 const ACTIVATE_INSTANCE_EVENT_NAME: &str = "Local\\MyKVMLocal_ActivateWindow";
 #[cfg(target_os = "windows")]
 const QUIT_INSTANCE_EVENT_NAME: &str = "Local\\MyKVMLocal_QuitExisting";
+#[cfg(all(unix, not(target_os = "windows")))]
+const UNIX_INSTANCE_SOCKET_NAME: &str = "local.mykvm.gaming.instance.sock";
 
 static HOSTNAME_CACHE: OnceLock<Option<String>> = OnceLock::new();
 
@@ -3341,7 +3343,80 @@ pub fn acquire_single_instance() -> bool {
     true
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(unix, not(target_os = "windows")))]
+struct UnixSingleInstanceGuard {
+    listener: std::os::unix::net::UnixListener,
+    path: PathBuf,
+}
+
+#[cfg(all(unix, not(target_os = "windows")))]
+impl Drop for UnixSingleInstanceGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+#[cfg(all(unix, not(target_os = "windows")))]
+enum UnixInstanceBind {
+    Primary(std::os::unix::net::UnixListener),
+    Existing,
+}
+
+#[cfg(all(unix, not(target_os = "windows")))]
+static UNIX_SINGLE_INSTANCE: OnceLock<Mutex<Option<UnixSingleInstanceGuard>>> = OnceLock::new();
+
+#[cfg(all(unix, not(target_os = "windows")))]
+fn unix_instance_socket_path() -> PathBuf {
+    env::temp_dir().join(UNIX_INSTANCE_SOCKET_NAME)
+}
+
+#[cfg(all(unix, not(target_os = "windows")))]
+fn bind_unix_instance(path: &std::path::Path) -> Result<UnixInstanceBind, String> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::{UnixListener, UnixStream};
+
+    match UnixListener::bind(path) {
+        Ok(listener) => {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+                .map_err(|error| format!("failed to protect instance socket: {error}"))?;
+            Ok(UnixInstanceBind::Primary(listener))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+            if UnixStream::connect(path).is_ok() {
+                return Ok(UnixInstanceBind::Existing);
+            }
+            fs::remove_file(path)
+                .map_err(|remove| format!("failed to remove stale instance socket: {remove}"))?;
+            let listener = UnixListener::bind(path)
+                .map_err(|bind| format!("failed to replace stale instance socket: {bind}"))?;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+                .map_err(|protect| format!("failed to protect instance socket: {protect}"))?;
+            Ok(UnixInstanceBind::Primary(listener))
+        }
+        Err(error) => Err(format!("failed to bind instance socket: {error}")),
+    }
+}
+
+#[cfg(all(unix, not(target_os = "windows")))]
+pub fn acquire_single_instance() -> bool {
+    let path = unix_instance_socket_path();
+    let listener = match bind_unix_instance(&path) {
+        Ok(UnixInstanceBind::Primary(listener)) => listener,
+        Ok(UnixInstanceBind::Existing) => return false,
+        Err(error) => {
+            eprintln!("{error}");
+            return false;
+        }
+    };
+    let guard = UNIX_SINGLE_INSTANCE.get_or_init(|| Mutex::new(None));
+    let Ok(mut guard) = guard.lock() else {
+        return false;
+    };
+    *guard = Some(UnixSingleInstanceGuard { listener, path });
+    true
+}
+
+#[cfg(all(not(unix), not(target_os = "windows")))]
 pub fn acquire_single_instance() -> bool {
     true
 }
@@ -3363,8 +3438,16 @@ fn release_single_instance() {
     }
 }
 
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(unix, not(target_os = "windows")))]
+fn release_single_instance() {
+    if let Some(guard) = UNIX_SINGLE_INSTANCE.get() {
+        if let Ok(mut guard) = guard.lock() {
+            *guard = None;
+        }
+    }
+}
+
+#[cfg(all(not(unix), not(target_os = "windows")))]
 fn release_single_instance() {}
 
 pub fn activate_existing_instance() -> bool {
@@ -3373,7 +3456,12 @@ pub fn activate_existing_instance() -> bool {
         return signal_named_instance_event(ACTIVATE_INSTANCE_EVENT_NAME);
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(all(unix, not(target_os = "windows")))]
+    {
+        signal_unix_instance(b"activate")
+    }
+
+    #[cfg(all(not(unix), not(target_os = "windows")))]
     {
         false
     }
@@ -3385,10 +3473,25 @@ pub fn request_existing_instance_quit() -> bool {
         return signal_named_instance_event(QUIT_INSTANCE_EVENT_NAME);
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(all(unix, not(target_os = "windows")))]
+    {
+        signal_unix_instance(b"quit")
+    }
+
+    #[cfg(all(not(unix), not(target_os = "windows")))]
     {
         false
     }
+}
+
+#[cfg(all(unix, not(target_os = "windows")))]
+fn signal_unix_instance(message: &[u8]) -> bool {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+
+    UnixStream::connect(unix_instance_socket_path())
+        .and_then(|mut stream| stream.write_all(message))
+        .is_ok()
 }
 
 #[cfg(target_os = "windows")]
@@ -3421,7 +3524,45 @@ fn setup_single_instance_events(app: AppHandle) {
     spawn_instance_event_listener(QUIT_INSTANCE_EVENT_NAME, app, InstanceEvent::Quit);
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(unix, not(target_os = "windows")))]
+fn setup_single_instance_events(app: AppHandle) {
+    use std::io::Read;
+
+    let listener = UNIX_SINGLE_INSTANCE
+        .get()
+        .and_then(|guard| guard.lock().ok())
+        .and_then(|guard| guard.as_ref()?.listener.try_clone().ok());
+    let Some(listener) = listener else {
+        log::warn!("single-instance listener is unavailable");
+        return;
+    };
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else {
+                break;
+            };
+            let mut message = [0_u8; 16];
+            let Ok(length) = stream.read(&mut message) else {
+                continue;
+            };
+            match &message[..length] {
+                b"activate" => {
+                    let handle = app.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        let _ = show_main_window_handle(&handle);
+                    });
+                }
+                b"quit" => {
+                    request_app_quit(&app);
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+}
+
+#[cfg(all(not(unix), not(target_os = "windows")))]
 fn setup_single_instance_events(app: AppHandle) {
     let _ = app;
 }
@@ -3810,6 +3951,8 @@ pub fn run() {
                 if !should_allow_app_exit(app, code) {
                     api.prevent_exit();
                     let _ = hide_main_window_handle(app);
+                } else {
+                    release_single_instance();
                 }
             }
             #[cfg(target_os = "macos")]
@@ -3836,8 +3979,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
-    let hide_item = MenuItem::with_id(app, "hide", "Hide to tray", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let hide_item = MenuItem::with_id(app, "hide", "隐藏设置窗口", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "退出 MyKVM Local", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[&show_item, &runtime_toggle_item, &hide_item, &quit_item],
@@ -8534,6 +8677,52 @@ mod tests {
             Some(tauri::RESTART_EXIT_CODE),
             false
         ));
+    }
+
+    #[test]
+    fn a40_autostart_argument_is_explicit_and_exact() {
+        assert!(args_contain_autostart(["mykvm-local", AUTOSTART_ARG]));
+        assert!(!args_contain_autostart(["mykvm-local"]));
+        assert!(!args_contain_autostart([
+            "mykvm-local",
+            "--mykvm-local-autostart-extra"
+        ]));
+    }
+
+    #[cfg(all(unix, not(target_os = "windows")))]
+    #[test]
+    fn a41_unix_single_instance_rejects_duplicate_and_delivers_activation() {
+        use std::io::{Read, Write};
+        use std::os::unix::net::UnixStream;
+
+        let path = env::temp_dir().join(format!(
+            "mykvm-a41-{}-{}.sock",
+            std::process::id(),
+            now_ms()
+        ));
+        let UnixInstanceBind::Primary(listener) = bind_unix_instance(&path).unwrap() else {
+            panic!("first bind must own the instance socket")
+        };
+        assert!(matches!(
+            bind_unix_instance(&path).unwrap(),
+            UnixInstanceBind::Existing
+        ));
+
+        let mut sender = UnixStream::connect(&path).unwrap();
+        sender.write_all(b"activate").unwrap();
+        drop(sender);
+        let mut received = Vec::new();
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut bytes = Vec::new();
+            stream.read_to_end(&mut bytes).unwrap();
+            if !bytes.is_empty() {
+                received = bytes;
+            }
+        }
+        assert_eq!(received, b"activate");
+        drop(listener);
+        fs::remove_file(path).unwrap();
     }
 
     #[test]

@@ -53,6 +53,24 @@ test('A42: single-instance, helper namespace and frontend storage are isolated',
   assert.match(read('src-tauri/src/main.rs'), /windows_subsystem = "windows"/)
 })
 
+test('A39-A41: background runtime owns lifecycle and autostart stays silent', () => {
+  const source = read('src-tauri/src/lib.rs')
+  const ui = read('src/App.tsx')
+  assert.match(source, /let runtime = AppRuntime::new\([\s\S]*?app\.manage\(runtime\)/)
+  assert.match(source, /fn destroy_main_window_handle[\s\S]*?window\s*\.destroy\(\)/)
+  assert.match(source, /WindowEvent::CloseRequested[\s\S]*?api\.prevent_close\(\)[\s\S]*?hide_main_window_handle/)
+  assert.match(source, /let silent_launch = launched_from_autostart\(\)[\s\S]*?if silent_launch \{\s*hide_main_window_handle/)
+  assert.match(source, /MacosLauncher::LaunchAgent/)
+  assert.doesNotMatch(ui, /mykvm\.clientAutostartInit/)
+  assert.match(ui, /unlistenRuntime\?\.\(\)/)
+  assert.match(ui, /window\.clearInterval\(intervalId\)/)
+  assert.match(source, /UNIX_INSTANCE_SOCKET_NAME/)
+  assert.match(source, /bind_unix_instance[\s\S]*?UnixInstanceBind::Existing/)
+  assert.doesNotMatch(source, /PreventSystemSleep|SetThreadExecutionState|SYSTEM\\CurrentControlSet\\Services/)
+  assert.match(read('src-tauri/tauri.conf.json'), /"windows": \[\]/)
+  assert.match(source, /fn ensure_main_window[\s\S]*?WebviewWindowBuilder::new/)
+})
+
 test('A42: fork cannot automatically run the upstream release workflow', () => {
   for (const file of readdirSync(new URL('../.github/workflows/', import.meta.url))) {
     assert.doesNotMatch(read(`.github/workflows/${file}`), /TAURI_SIGNING_PRIVATE_KEY|contents: write|gh release/)
