@@ -192,6 +192,27 @@ impl Default for ScreenSwitchHotkeys {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ControlHotkeys {
+    #[serde(default = "default_control_mac_hotkey")]
+    pub control_mac: String,
+    #[serde(default = "default_return_windows_hotkey")]
+    pub return_windows: String,
+    #[serde(default = "default_emergency_return_hotkey")]
+    pub emergency_return: String,
+}
+
+impl Default for ControlHotkeys {
+    fn default() -> Self {
+        Self {
+            control_mac: default_control_mac_hotkey(),
+            return_windows: default_return_windows_hotkey(),
+            emergency_return: default_emergency_return_hotkey(),
+        }
+    }
+}
+
 fn default_screen_switch_hotkey_left() -> String {
     "alt+left".into()
 }
@@ -247,6 +268,8 @@ struct LayoutState {
     edge_switch_hotkey: String,
     #[serde(default)]
     screen_switch_hotkeys: ScreenSwitchHotkeys,
+    #[serde(default)]
+    control_hotkeys: ControlHotkeys,
 }
 
 /// Cross-platform modifier remapping. Each field names the *logical* modifier
@@ -542,6 +565,10 @@ struct AppRuntime {
     runtime_toggle_menu_item: Mutex<Option<MenuItem<Wry>>>,
     screen_switch_request: Arc<Mutex<Option<input::SwitchDirection>>>,
     screen_switch_shortcuts: Mutex<ScreenSwitchHotkeys>,
+    control_hotkeys: Mutex<ControlHotkeys>,
+    control_hotkey_deduper: Arc<game_mode::HotkeyDeduper>,
+    control_action: Arc<game_mode::ControlActionSlot>,
+    controller_local_override: Arc<routing::LocalOverride>,
     config_path: PathBuf,
 }
 
@@ -581,6 +608,10 @@ impl AppRuntime {
             runtime_toggle_menu_item: Mutex::new(None),
             screen_switch_request: Arc::new(Mutex::new(None)),
             screen_switch_shortcuts: Mutex::new(empty_screen_switch_hotkeys()),
+            control_hotkeys: Mutex::new(empty_control_hotkeys()),
+            control_hotkey_deduper: Arc::new(game_mode::HotkeyDeduper::default()),
+            control_action: Arc::new(game_mode::ControlActionSlot::default()),
+            controller_local_override: Arc::new(routing::LocalOverride::default()),
             config_path,
         }
     }
@@ -1364,6 +1395,9 @@ impl AppRuntime {
                     Arc::clone(&self.clipboard_target),
                     Arc::clone(&self.input_events),
                     Arc::clone(&self.screen_switch_request),
+                    Arc::clone(&self.control_action),
+                    Arc::clone(&self.control_hotkey_deduper),
+                    Arc::clone(&self.controller_local_override),
                 );
                 if statuses.0.state == "ready" {
                     *input_stop = Some(stop);
@@ -1538,6 +1572,7 @@ impl AppRuntime {
     }
 
     fn stop_input(&self) {
+        self.controller_local_override.request_local();
         self.input_receive_enabled.store(false, Ordering::Relaxed);
         if let Ok(mut stop) = self.input_stop.lock() {
             if let Some(signal) = stop.take() {
@@ -1609,6 +1644,7 @@ fn save_layout(
             .map_err(|_| "layout state lock poisoned".to_string())?;
         let previous_layout = stored_layout.clone();
         let saved_layout = merge_runtime_owned_layout_fields(layout, &previous_layout);
+        validate_layout_shortcut_conflicts(&saved_layout)?;
         write_layout_to_disk(&state.config_path, &saved_layout)?;
         *stored_layout = saved_layout.clone();
         (previous_layout, saved_layout)
@@ -1633,6 +1669,7 @@ fn save_layout(
     }
     sync_runtime_toggle_shortcut(&state.app_handle)?;
     sync_screen_switch_shortcuts(&state.app_handle)?;
+    sync_control_hotkeys(&state.app_handle)?;
     Ok(state.snapshot())
 }
 
@@ -2169,17 +2206,182 @@ fn empty_screen_switch_hotkeys() -> ScreenSwitchHotkeys {
     }
 }
 
+fn empty_control_hotkeys() -> ControlHotkeys {
+    ControlHotkeys {
+        control_mac: String::new(),
+        return_windows: String::new(),
+        emergency_return: String::new(),
+    }
+}
+
+fn control_hotkeys_for_layout(layout: &LayoutState) -> Result<ControlHotkeys, String> {
+    if layout.machine_role != "server" {
+        return Ok(empty_control_hotkeys());
+    }
+    Ok(ControlHotkeys {
+        control_mac: canonical_runtime_toggle_shortcut(&layout.control_hotkeys.control_mac)?
+            .unwrap_or_default(),
+        return_windows: canonical_runtime_toggle_shortcut(
+            &layout.control_hotkeys.return_windows,
+        )?
+        .unwrap_or_default(),
+        emergency_return: canonical_runtime_toggle_shortcut(
+            &layout.control_hotkeys.emergency_return,
+        )?
+        .unwrap_or_default(),
+    })
+}
+
+fn sync_control_hotkeys(app: &AppHandle) -> Result<(), String> {
+    let Some(state) = app.try_state::<AppRuntime>() else {
+        return Ok(());
+    };
+    let next = control_hotkeys_for_layout(&state.layout_snapshot())?;
+    let mut current = state
+        .control_hotkeys
+        .lock()
+        .map_err(|_| "control hotkey lock poisoned".to_string())?;
+    if *current == next {
+        return Ok(());
+    }
+
+    let old_values = [
+        current.control_mac.clone(),
+        current.return_windows.clone(),
+        current.emergency_return.clone(),
+    ];
+    let next_values = [
+        next.control_mac.clone(),
+        next.return_windows.clone(),
+        next.emergency_return.clone(),
+    ];
+    let changed = old_values
+        .iter()
+        .zip(&next_values)
+        .filter(|(old, new)| old != new)
+        .collect::<Vec<_>>();
+    let mut unregistered: Vec<String> = Vec::new();
+    for (old, _) in &changed {
+        if old.is_empty() {
+            continue;
+        }
+        if let Err(error) = app.global_shortcut().unregister(old.as_str()) {
+            for value in &unregistered {
+                let _ = app.global_shortcut().register(value.as_str());
+            }
+            return Err(format!("无法注销控制快捷键 {old}: {error}"));
+        }
+        unregistered.push((*old).clone());
+    }
+
+    let mut registered: Vec<String> = Vec::new();
+    for (_, new) in &changed {
+        if new.is_empty() {
+            continue;
+        }
+        if let Err(error) = app.global_shortcut().register(new.as_str()) {
+            for value in &registered {
+                let _ = app.global_shortcut().unregister(value.as_str());
+            }
+            for value in &unregistered {
+                if !value.is_empty() {
+                    let _ = app.global_shortcut().register(value.as_str());
+                }
+            }
+            return Err(format!("控制快捷键注册失败或与其他程序冲突 {new}: {error}"));
+        }
+        registered.push((*new).clone());
+    }
+    *current = next;
+    Ok(())
+}
+
+fn validate_layout_shortcut_conflicts(layout: &LayoutState) -> Result<(), String> {
+    if layout.machine_role != "server" {
+        return Ok(());
+    }
+    let entries = [
+        ("快捷启停", layout.edge_switch_hotkey.as_str()),
+        ("控制 Mac", layout.control_hotkeys.control_mac.as_str()),
+        ("返回 Windows", layout.control_hotkeys.return_windows.as_str()),
+        (
+            "紧急返回 Windows",
+            layout.control_hotkeys.emergency_return.as_str(),
+        ),
+        ("向左切换", layout.screen_switch_hotkeys.left.as_str()),
+        ("向右切换", layout.screen_switch_hotkeys.right.as_str()),
+        ("向上切换", layout.screen_switch_hotkeys.up.as_str()),
+        ("向下切换", layout.screen_switch_hotkeys.down.as_str()),
+    ];
+    let mut canonical: Vec<(&str, String)> = Vec::new();
+    for (label, raw) in entries {
+        if let Some(value) = canonical_runtime_toggle_shortcut(raw)? {
+            if let Some((other, _)) = canonical.iter().find(|(_, existing)| existing == &value) {
+                return Err(format!("快捷键冲突：{label} 与 {other} 都使用 {value}"));
+            }
+            canonical.push((label, value));
+        }
+    }
+    Ok(())
+}
+
 /// Dispatch a pressed global shortcut to its action. The runtime-toggle
 /// shortcut starts/stops capture; the four direction shortcuts post a switch
 /// request that the capture loop consumes.
 fn route_global_shortcut(
     app: &AppHandle,
     shortcut: &tauri_plugin_global_shortcut::Shortcut,
+    pressed: bool,
 ) -> Result<(), String> {
     let Some(state) = app.try_state::<AppRuntime>() else {
         return Ok(());
     };
     if state.layout_snapshot().machine_role != "server" {
+        return Ok(());
+    }
+
+    let control_hotkeys = state
+        .control_hotkeys
+        .lock()
+        .map_err(|_| "control hotkey lock poisoned".to_string())?;
+    let control_action = [
+        (
+            control_hotkeys.control_mac.as_str(),
+            game_mode::ControlHotkeyAction::GoMac,
+        ),
+        (
+            control_hotkeys.return_windows.as_str(),
+            game_mode::ControlHotkeyAction::GoLocal,
+        ),
+        (
+            control_hotkeys.emergency_return.as_str(),
+            game_mode::ControlHotkeyAction::EmergencyLocal,
+        ),
+    ]
+    .into_iter()
+    .find_map(|(stored, action)| {
+        if stored.is_empty() {
+            return None;
+        }
+        stored
+            .parse::<tauri_plugin_global_shortcut::Shortcut>()
+            .ok()
+            .filter(|parsed| parsed == shortcut)
+            .map(|_| action)
+    });
+    drop(control_hotkeys);
+    if let Some(action) = control_action {
+        game_mode::dispatch_control_hotkey(
+            &state.control_hotkey_deduper,
+            &state.control_action,
+            &state.controller_local_override,
+            action,
+            pressed,
+        );
+        return Ok(());
+    }
+
+    if !pressed {
         return Ok(());
     }
 
@@ -3219,10 +3421,12 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
-                    if event.state == ShortcutState::Pressed {
-                        if let Err(error) = route_global_shortcut(app, shortcut) {
-                            log::warn!("global shortcut failed: {error}");
-                        }
+                    if let Err(error) = route_global_shortcut(
+                        app,
+                        shortcut,
+                        event.state == ShortcutState::Pressed,
+                    ) {
+                        log::warn!("global shortcut failed: {error}");
                     }
                 })
                 .build(),
@@ -3314,6 +3518,9 @@ pub fn run() {
             }
             if let Err(error) = sync_screen_switch_shortcuts(app.handle()) {
                 log::warn!("failed to register screen switch shortcuts: {error}");
+            }
+            if let Err(error) = sync_control_hotkeys(app.handle()) {
+                log::warn!("failed to register control shortcuts: {error}");
             }
             #[cfg(target_os = "windows")]
             apply_custom_chrome(app.handle())?;
@@ -4226,6 +4433,7 @@ fn detect_local_layout(app: &AppHandle) -> LayoutState {
         modifier_map: default_modifier_map(),
         edge_switch_hotkey: default_edge_switch_hotkey(),
         screen_switch_hotkeys: ScreenSwitchHotkeys::default(),
+        control_hotkeys: ControlHotkeys::default(),
         devices: vec![Device {
             id: device_id,
             name: local_device_name(),
@@ -4270,6 +4478,7 @@ fn detect_fallback_layout() -> LayoutState {
         modifier_map: default_modifier_map(),
         edge_switch_hotkey: default_edge_switch_hotkey(),
         screen_switch_hotkeys: ScreenSwitchHotkeys::default(),
+        control_hotkeys: ControlHotkeys::default(),
     }
 }
 
@@ -4384,6 +4593,7 @@ fn normalize_saved_layout(saved_layout: LayoutState, detected_layout: LayoutStat
         modifier_map: normalize_modifier_map(&saved_layout.modifier_map),
         edge_switch_hotkey: normalize_edge_switch_hotkey(&saved_layout.edge_switch_hotkey),
         screen_switch_hotkeys: saved_layout.screen_switch_hotkeys.clone(),
+        control_hotkeys: saved_layout.control_hotkeys.clone(),
     }
 }
 
@@ -4645,6 +4855,18 @@ fn default_modifier_map() -> ModifierMap {
 
 fn default_edge_switch_hotkey() -> String {
     "alt+shift+k".into()
+}
+
+fn default_control_mac_hotkey() -> String {
+    "control+alt+F11".into()
+}
+
+fn default_return_windows_hotkey() -> String {
+    "control+alt+F10".into()
+}
+
+fn default_emergency_return_hotkey() -> String {
+    "control+alt+shift+F10".into()
 }
 
 fn normalize_edge_switch_hotkey(value: &str) -> String {
@@ -7454,6 +7676,7 @@ mod tests {
             modifier_map: default_modifier_map(),
             edge_switch_hotkey: default_edge_switch_hotkey(),
             screen_switch_hotkeys: ScreenSwitchHotkeys::default(),
+            control_hotkeys: ControlHotkeys::default(),
         }
     }
 
@@ -7553,6 +7776,42 @@ mod tests {
                 down: String::new(),
             }
         );
+    }
+
+    #[test]
+    fn control_hotkeys_are_canonical_for_server_role() {
+        let layout = test_layout();
+
+        assert_eq!(
+            control_hotkeys_for_layout(&layout).expect("control hotkeys"),
+            ControlHotkeys {
+                control_mac: "control+alt+F11".into(),
+                return_windows: "control+alt+F10".into(),
+                emergency_return: "control+alt+shift+F10".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn control_hotkeys_are_disabled_for_client_role() {
+        let mut layout = test_layout();
+        layout.machine_role = "client".into();
+
+        assert_eq!(
+            control_hotkeys_for_layout(&layout).expect("control hotkeys"),
+            empty_control_hotkeys()
+        );
+    }
+
+    #[test]
+    fn layout_rejects_duplicate_control_and_screen_shortcuts() {
+        let mut layout = test_layout();
+        layout.screen_switch_hotkeys.left = layout.control_hotkeys.return_windows.clone();
+
+        let error = validate_layout_shortcut_conflicts(&layout).expect_err("shortcut conflict");
+        assert!(error.contains("快捷键冲突"));
+        assert!(error.contains("返回 Windows"));
+        assert!(error.contains("向左切换"));
     }
 
     #[test]

@@ -23,6 +23,12 @@ export interface ScreenSwitchHotkeys {
   down: string
 }
 
+export interface ControlHotkeys {
+  controlMac: string
+  returnWindows: string
+  emergencyReturn: string
+}
+
 export interface PairedController {
   id: string
   name: string
@@ -85,4 +91,5 @@ export interface LayoutState {
   modifierMap: ModifierMap
   edgeSwitchHotkey: string
   screenSwitchHotkeys: ScreenSwitchHotkeys
+  controlHotkeys: ControlHotkeys
 }

@@ -464,6 +464,29 @@ fn screen_switch_hotkeys_match_vk(
     .any(|hotkey| hotkey_matches_vk(hotkey, key_code, modifiers))
 }
 
+fn control_hotkeys_match_vk(
+    hotkeys: &crate::ControlHotkeys,
+    key_code: u16,
+    modifiers: HotkeyModifiers,
+) -> Option<crate::game_mode::ControlHotkeyAction> {
+    [
+        (
+            hotkeys.emergency_return.as_str(),
+            crate::game_mode::ControlHotkeyAction::EmergencyLocal,
+        ),
+        (
+            hotkeys.return_windows.as_str(),
+            crate::game_mode::ControlHotkeyAction::GoLocal,
+        ),
+        (
+            hotkeys.control_mac.as_str(),
+            crate::game_mode::ControlHotkeyAction::GoMac,
+        ),
+    ]
+    .into_iter()
+    .find_map(|(hotkey, action)| hotkey_matches_vk(hotkey, key_code, modifiers).then_some(action))
+}
+
 fn hotkey_matches_vk(value: &str, key_code: u16, modifiers: HotkeyModifiers) -> bool {
     let normalized = value.trim().to_ascii_lowercase().replace(' ', "");
     if normalized.is_empty()
@@ -604,22 +627,54 @@ fn request_screen_switch_from_point(
     // Land the remote cursor at the centre of the entry screen — there is no
     // mouse trajectory to derive an entry offset from, so the middle is the
     // least surprising landing spot.
+    SwitchOutcome::Enter(centered_active_target(target))
+}
+
+fn centered_active_target(target: &InputTarget) -> ActiveTarget {
     let remote_x = (target.remote_screen.width as f64 / 2.0)
         .clamp(0.0, (target.remote_screen.width - 1) as f64);
     let remote_y = (target.remote_screen.height as f64 / 2.0)
         .clamp(0.0, (target.remote_screen.height - 1) as f64);
-
     let mut current_screen = target.remote_screen.clone();
     current_screen.id = target.screen_id.clone();
-
-    SwitchOutcome::Enter(ActiveTarget {
+    ActiveTarget {
         target: target.clone(),
         current_screen,
         current_screen_id: target.screen_id.clone(),
         x: remote_x,
         y: remote_y,
         invert_y: false,
-    })
+    }
+}
+
+fn request_selected_remote(
+    layout_state: &Arc<Mutex<LayoutState>>,
+    native_layout: &LayoutState,
+    active: &Mutex<Option<ActiveTarget>>,
+) -> SwitchOutcome {
+    if active.lock().map(|active| active.is_some()).unwrap_or(true) {
+        return SwitchOutcome::Noop;
+    }
+    let Ok(layout) = layout_state.lock() else {
+        return SwitchOutcome::Noop;
+    };
+    let targets = build_input_targets(&layout, native_layout);
+    let target = targets
+        .iter()
+        .find(|target| {
+            target.device_id == layout.active_device_id
+                && (target.screen_id == layout.selected_screen_id
+                    || target.remote_screen.id == layout.selected_screen_id)
+        })
+        .or_else(|| {
+            targets
+                .iter()
+                .find(|target| target.device_id == layout.active_device_id)
+        });
+    target
+        .map(centered_active_target)
+        .map(SwitchOutcome::Enter)
+        .unwrap_or(SwitchOutcome::Noop)
 }
 
 fn source_local_screen<'a>(
@@ -745,6 +800,9 @@ pub fn start_input_runtime(
     }
 
     let targets = build_input_targets(&layout, &native_layout);
+    let control_action = Arc::new(crate::game_mode::ControlActionSlot::default());
+    let control_hotkey_deduper = Arc::new(crate::game_mode::HotkeyDeduper::default());
+    let local_override = Arc::new(crate::routing::LocalOverride::default());
     let capture_status = start_input_capture(
         targets,
         layout_state,
@@ -757,6 +815,9 @@ pub fn start_input_runtime(
         clipboard_target,
         input_events,
         switch_request,
+        control_action,
+        control_hotkey_deduper,
+        local_override,
         false,
     );
 
@@ -774,6 +835,9 @@ pub fn start_v2_controller_runtime(
     clipboard_target: Arc<Mutex<Option<ClipboardTarget>>>,
     input_events: Arc<AtomicU64>,
     switch_request: Arc<Mutex<Option<SwitchDirection>>>,
+    control_action: Arc<crate::game_mode::ControlActionSlot>,
+    control_hotkey_deduper: Arc<crate::game_mode::HotkeyDeduper>,
+    local_override: Arc<crate::routing::LocalOverride>,
 ) -> (NativeStageStatus, NativeStageStatus) {
     let targets = build_input_targets(&layout, &native_layout);
     let capture = start_input_capture(
@@ -788,6 +852,9 @@ pub fn start_v2_controller_runtime(
         clipboard_target,
         input_events,
         switch_request,
+        control_action,
+        control_hotkey_deduper,
+        local_override,
         true,
     );
     (
@@ -938,6 +1005,9 @@ fn start_input_capture(
     clipboard_target: Arc<Mutex<Option<ClipboardTarget>>>,
     input_events: Arc<AtomicU64>,
     switch_request: Arc<Mutex<Option<SwitchDirection>>>,
+    control_action: Arc<crate::game_mode::ControlActionSlot>,
+    control_hotkey_deduper: Arc<crate::game_mode::HotkeyDeduper>,
+    local_override: Arc<crate::routing::LocalOverride>,
     controller_v2: bool,
 ) -> NativeStageStatus {
     invalidate_input_targets_cache();
@@ -953,6 +1023,9 @@ fn start_input_capture(
         clipboard_target,
         input_events,
         switch_request,
+        control_action,
+        control_hotkey_deduper,
+        local_override,
         controller_v2,
     )
 }
@@ -970,6 +1043,9 @@ fn start_platform_capture(
     clipboard_target: Arc<Mutex<Option<ClipboardTarget>>>,
     input_events: Arc<AtomicU64>,
     switch_request: Arc<Mutex<Option<SwitchDirection>>>,
+    _control_action: Arc<crate::game_mode::ControlActionSlot>,
+    _control_hotkey_deduper: Arc<crate::game_mode::HotkeyDeduper>,
+    _local_override: Arc<crate::routing::LocalOverride>,
     controller_v2: bool,
 ) -> NativeStageStatus {
     use core_foundation::runloop::{kCFRunLoopCommonModes, kCFRunLoopDefaultMode, CFRunLoop};
@@ -1183,6 +1259,9 @@ fn start_platform_capture(
     clipboard_target: Arc<Mutex<Option<ClipboardTarget>>>,
     input_events: Arc<AtomicU64>,
     switch_request: Arc<Mutex<Option<SwitchDirection>>>,
+    control_action: Arc<crate::game_mode::ControlActionSlot>,
+    control_hotkey_deduper: Arc<crate::game_mode::HotkeyDeduper>,
+    local_override: Arc<crate::routing::LocalOverride>,
     controller_v2: bool,
 ) -> NativeStageStatus {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -1212,10 +1291,11 @@ fn start_platform_capture(
                     return;
                 }
             };
-            match ControllerClient::new(
+            match ControllerClient::new_with_override(
                 QuicControllerTransport::new(quic_transport.clone()),
                 boot,
                 local_peer_id,
+                Arc::clone(&local_override),
             ) {
                 Ok(controller) => Some(Mutex::new(controller)),
                 Err(error) => {
@@ -1239,6 +1319,9 @@ fn start_platform_capture(
             input_events,
             targets,
             switch_request,
+            control_action,
+            control_hotkey_deduper,
+            local_override,
             anchor: Mutex::new(None),
             last_point: Mutex::new(None),
             last_mouse_move_sent: Mutex::new(None),
@@ -1302,6 +1385,7 @@ fn start_platform_capture(
                     release_windows_remote_control(&context, true);
                 }
             }
+            drain_control_action_windows(&context);
             drain_switch_request_windows(&context);
             drain_v2_controller_windows(&context);
             // Low-level hook callbacks are dispatched only while this thread
@@ -1358,6 +1442,9 @@ fn start_platform_capture(
     clipboard_target: Arc<Mutex<Option<ClipboardTarget>>>,
     _input_events: Arc<AtomicU64>,
     _switch_request: Arc<Mutex<Option<SwitchDirection>>>,
+    _control_action: Arc<crate::game_mode::ControlActionSlot>,
+    _control_hotkey_deduper: Arc<crate::game_mode::HotkeyDeduper>,
+    _local_override: Arc<crate::routing::LocalOverride>,
     _controller_v2: bool,
 ) -> NativeStageStatus {
     remote_active.store(false, Ordering::Relaxed);
@@ -2760,6 +2847,9 @@ struct WindowsCaptureContext {
     input_events: Arc<AtomicU64>,
     targets: Vec<InputTarget>,
     switch_request: Arc<Mutex<Option<SwitchDirection>>>,
+    control_action: Arc<crate::game_mode::ControlActionSlot>,
+    control_hotkey_deduper: Arc<crate::game_mode::HotkeyDeduper>,
+    local_override: Arc<crate::routing::LocalOverride>,
     anchor: Mutex<Option<(f64, f64)>>,
     last_point: Mutex<Option<(f64, f64)>>,
     last_mouse_move_sent: Mutex<Option<Instant>>,
@@ -2963,15 +3053,13 @@ fn drain_v2_controller_windows(context: &WindowsCaptureContext) {
         candidate: None,
     };
     let mut focus = WindowsV2FocusPort;
-    // T09 replaces this conservative value with complete physical key/button
-    // sampling. A false value can only delay/cancel activation.
     if let Err(error) = controller.poll(
         context
             .v2_epoch
             .elapsed()
             .as_millis()
             .min(u128::from(u64::MAX)) as u64,
-        false,
+        windows_control_inputs_released(),
         &mut capture,
         &mut focus,
     ) {
@@ -3000,6 +3088,49 @@ fn drain_v2_controller_windows(context: &WindowsCaptureContext) {
             }
             Err(error) => {
                 log::warn!("V2 initial motion failed closed: {error:?}");
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_control_inputs_released() -> bool {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+
+    (1..=254).all(|virtual_key| unsafe {
+        (GetAsyncKeyState(virtual_key) as u16 & 0x8000) == 0
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn drain_control_action_windows(context: &WindowsCaptureContext) {
+    let Some(action) = context.control_action.take() else {
+        return;
+    };
+    match action {
+        crate::game_mode::ControlHotkeyAction::GoLocal => {
+            release_windows_remote_control_with_reason(context, false, ReturnReason::User);
+        }
+        crate::game_mode::ControlHotkeyAction::EmergencyLocal => {
+            release_windows_remote_control_with_reason(context, false, ReturnReason::Emergency);
+        }
+        crate::game_mode::ControlHotkeyAction::GoMac => {
+            if context.v2_controller.is_none()
+                || context.remote_active.load(Ordering::Acquire)
+                || context
+                    .v2_pending
+                    .lock()
+                    .map(|pending| pending.is_some())
+                    .unwrap_or(true)
+            {
+                return;
+            }
+            if let SwitchOutcome::Enter(active) = request_selected_remote(
+                &context.layout_state,
+                &context.native_layout,
+                &context.active,
+            ) {
+                let _ = begin_v2_controller_windows(context, active, false);
             }
         }
     }
@@ -3236,6 +3367,9 @@ unsafe extern "system" fn windows_mouse_proc(code: i32, wparam: usize, lparam: i
     let Some(context) = windows_capture_context() else {
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
     };
+    if context.v2_controller.is_some() && context.local_override.is_local() {
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+    }
     if !cached_windows_input_desktop_is_default() {
         release_windows_remote_control(&context, true);
         return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
@@ -3282,6 +3416,37 @@ unsafe extern "system" fn windows_keyboard_proc(code: i32, wparam: usize, lparam
     }
 
     let message = wparam as u32;
+
+    if matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP) {
+        let event = unsafe { *(lparam as *const KBDLLHOOKSTRUCT) };
+        let key_code = event.vkCode as u16;
+        let down = matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN);
+        let control_action = context.layout_state.lock().ok().and_then(|layout| {
+            (layout.machine_role == "server")
+                .then(|| {
+                    control_hotkeys_match_vk(
+                        &layout.control_hotkeys,
+                        key_code,
+                        windows_current_hotkey_modifiers(),
+                    )
+                })
+                .flatten()
+        });
+        if let Some(action) = control_action {
+            crate::game_mode::dispatch_control_hotkey(
+                &context.control_hotkey_deduper,
+                &context.control_action,
+                &context.local_override,
+                action,
+                down,
+            );
+            return 1;
+        }
+    }
+
+    if context.v2_controller.is_some() && context.local_override.is_local() {
+        return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+    }
 
     let active = context
         .active
@@ -3480,13 +3645,22 @@ fn release_forwarded_keys_windows(context: &WindowsCaptureContext, target: &Inpu
 
 #[cfg(target_os = "windows")]
 fn release_windows_remote_control(context: &WindowsCaptureContext, clear_clipboard: bool) {
+    release_windows_remote_control_with_reason(context, clear_clipboard, ReturnReason::User);
+}
+
+#[cfg(target_os = "windows")]
+fn release_windows_remote_control_with_reason(
+    context: &WindowsCaptureContext,
+    clear_clipboard: bool,
+    reason: ReturnReason,
+) {
     if let Some(controller) = &context.v2_controller {
         if let Ok(mut controller) = controller.lock() {
             let mut capture = WindowsV2CapturePort {
                 context,
                 candidate: None,
             };
-            if let Err(error) = controller.go_local(ReturnReason::User, &mut capture) {
+            if let Err(error) = controller.go_local(reason, &mut capture) {
                 log::warn!("V2 controller return failed closed: {error:?}");
                 capture.request_local_restore();
             }
@@ -6690,6 +6864,7 @@ mod tests {
             modifier_map: crate::default_modifier_map(),
             edge_switch_hotkey: crate::default_edge_switch_hotkey(),
             screen_switch_hotkeys: crate::ScreenSwitchHotkeys::default(),
+            control_hotkeys: crate::ControlHotkeys::default(),
         }
     }
 
@@ -7064,6 +7239,36 @@ mod tests {
     }
 
     #[test]
+    fn control_hotkey_matching_distinguishes_return_and_emergency() {
+        let hotkeys = crate::ControlHotkeys::default();
+        assert_eq!(
+            control_hotkeys_match_vk(
+                &hotkeys,
+                0x79,
+                HotkeyModifiers {
+                    ctrl: true,
+                    alt: true,
+                    ..HotkeyModifiers::default()
+                },
+            ),
+            Some(crate::game_mode::ControlHotkeyAction::GoLocal)
+        );
+        assert_eq!(
+            control_hotkeys_match_vk(
+                &hotkeys,
+                0x79,
+                HotkeyModifiers {
+                    ctrl: true,
+                    alt: true,
+                    shift: true,
+                    ..HotkeyModifiers::default()
+                },
+            ),
+            Some(crate::game_mode::ControlHotkeyAction::EmergencyLocal)
+        );
+    }
+
+    #[test]
     fn screen_switch_request_enters_remote_at_screen_center() {
         let layout = layout_for_target_tests();
         let layout_state = Arc::new(Mutex::new(layout.clone()));
@@ -7076,6 +7281,24 @@ mod tests {
                 assert_eq!(active_target.y, 540.0);
             }
             _ => panic!("expected right quick switch to enter the online client"),
+        }
+    }
+
+    #[test]
+    fn control_mac_request_uses_selected_remote_target() {
+        let mut layout = layout_for_target_tests();
+        layout.active_device_id = "peer-device".into();
+        layout.selected_screen_id = "peer-device-local-display-1".into();
+        let layout_state = Arc::new(Mutex::new(layout.clone()));
+        let active = Mutex::new(None);
+
+        match request_selected_remote(&layout_state, &layout, &active) {
+            SwitchOutcome::Enter(active_target) => {
+                assert_eq!(active_target.target.device_id, "peer-device");
+                assert_eq!(active_target.current_screen_id, "local-display-1");
+                assert_eq!((active_target.x, active_target.y), (960.0, 540.0));
+            }
+            _ => panic!("expected selected remote target"),
         }
     }
 

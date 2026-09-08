@@ -811,6 +811,62 @@ mod tests {
     }
 
     #[test]
+    fn a06_return_releases_hotkey_prefix_modifiers() {
+        let authenticated = peer(10);
+        let mut runtime = ReceiverSessionRuntime::new(boot(2), FakeInjector::default());
+        activate(&mut runtime, &authenticated);
+        for (sequence, key_code, scan_code) in [(1, 0x11, 0x1d), (2, 0x12, 0x38)] {
+            runtime
+                .handle_input(
+                    &CriticalFrame {
+                        session_id: session(),
+                        sequence,
+                        event: CriticalEvent::Key {
+                            key_code,
+                            scan_code,
+                            extended: false,
+                            down: true,
+                        },
+                    },
+                    &authenticated,
+                )
+                .unwrap();
+        }
+
+        runtime
+            .handle_control(
+                &ControlFrame::EndSession {
+                    session_id: session(),
+                    reason: "return-windows".into(),
+                },
+                &authenticated,
+            )
+            .unwrap();
+
+        assert_eq!(
+            runtime.injector().events,
+            vec![
+                InputCommand::Key {
+                    key_code: 0x11,
+                    down: true,
+                },
+                InputCommand::Key {
+                    key_code: 0x12,
+                    down: true,
+                },
+                InputCommand::Key {
+                    key_code: 0x12,
+                    down: false,
+                },
+                InputCommand::Key {
+                    key_code: 0x11,
+                    down: false,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn injector_failure_aborts_session_and_attempts_release() {
         let authenticated = peer(10);
         let injector = FakeInjector {

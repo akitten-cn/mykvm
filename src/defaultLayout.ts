@@ -33,6 +33,11 @@ export const defaultLayout: LayoutState = {
   modifierMap: { control: 'meta', alt: 'same', meta: 'control' },
   edgeSwitchHotkey: 'alt+shift+k',
   screenSwitchHotkeys: { left: 'alt+left', right: 'alt+right', up: 'alt+up', down: 'alt+down' },
+  controlHotkeys: {
+    controlMac: 'control+alt+F11',
+    returnWindows: 'control+alt+F10',
+    emergencyReturn: 'control+alt+shift+F10',
+  },
   devices: [
     {
       id: 'local-device',
