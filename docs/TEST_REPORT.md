@@ -112,3 +112,5 @@ Windows 交叉检查实际尝试后退出码 101，失败发生在项目代码�
 ## T08.a motion protocol 增量
 
 新增独立 V2 motion datagram 编解码，1024-byte 分配前上限及 session/sequence/reliable-floor 字段。3 项测试覆盖正常往返、零序列、超限、错误 magic 和 major。`t08a-native` 完整检查通过 181 个 Rust 库测试及其余 7 个步骤，日志为本地 `.local-evidence/t08a-native.log`。latest-wins transport 与接收应用尚未完成，T08 保持 in_progress。
+
+提交后以实现 SHA `d20467520fe33c81c5851f2fa22946cdd60845d3` 复跑整套检查，8 个步骤退出码均为 0，日志为本地 `.local-evidence/t08a-postcommit.log`。

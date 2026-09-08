@@ -25,7 +25,7 @@
 |T08.a|完成|独立 MKM2 motion datagram、1024-byte 上限、会话/单调序列和 required reliable floor；latest-wins 调度与接收应用继续实现|
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
 
-当前 T08.a 工作树基于 SHA `f0ba967efda2280fee135ddad10cffc0c2fb80cf`；提交前完整检查通过：181 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查，证据日志为本地 `.local-evidence/t08a-native.log`。提交后仍需以新 SHA 复核。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
+T08.a 实现 SHA：`d20467520fe33c81c5851f2fa22946cdd60845d3`。提交后完整检查通过：181 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查，证据日志为本地 `.local-evidence/t08a-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
 
 平台证据独立记录：Mac 库编译及前端构建通过；Mac 应用打包和运行未执行；Windows 构建 pending_environment；Windows/LOL 实机 optional_not_run。没有安装包、公开 fork、推送或发布。
 
