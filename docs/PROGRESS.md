@@ -18,7 +18,7 @@
 |T06.c|完成|仅认证控制端可开的 V2 可靠 input 持久流、双重有界队列、严格会话序列门控和真实 QUIC 回环顺序测试；运行时接线属于 T04.b/T07|
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
 
-最新已提交受测代码 SHA：`42cc578c09faacb088455f4e509b4003f7887d99`。T06.c 工作树的 151 个 Rust 库测试已通过，提交后 SHA 和完整检查证据将在本任务收尾时更新。测试包括认证 QUIC 本机回环、V2 分帧、队列边界和会话门控；全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
+最新受测代码 SHA：`9c887bb5cf4ced1e6ae20e1d676a5ed4ba5a7551`。提交后完整检查再次通过：151 个 Rust 库测试、认证 QUIC 本机回环、V2 分帧、队列边界和会话门控，以及 7 项隔离检查、前端 lint/build、Mac cargo check 和新增核心格式检查；证据日志为本地 `.local-evidence/t06c-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
 
 平台证据独立记录：Mac 库编译及前端构建通过；Mac 应用打包和运行未执行；Windows 构建 pending_environment；Windows/LOL 实机 optional_not_run。没有安装包、公开 fork、推送或发布。
 

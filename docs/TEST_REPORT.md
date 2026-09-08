@@ -50,3 +50,5 @@
 2026-09-08 的定向库回归在 Mac arm64 上通过 151 项测试。新增真实本机 QUIC 回环证明已认证 Controller 的一条持久 input stream 可按顺序交付两个关键帧，且 handler 收到 TLS 绑定的身份；接收端不等待 EOF。4 KiB 单帧上限、256 帧及 256 KiB 发送预算、单连接唯一 input stream和全局 8 条上限均为硬边界，队列满会向调用方返回错误。
 
 协议门控测试拒绝旧 receiver boot、结束后的帧与同会话复活、乱序/重复序列、空键码和序列空间耗尽。当前 `AppRuntime` 仍传入空 input handler，所以这些结果只证明传输及会话边界；没有调用 FakeInjector 或真实系统输入。A16/A17/A22 保留 not_run，并将已有证据记录为 partial，等待 T04.b/T07 贯通后完成端到端断言。
+
+提交后复核记录 SHA `9c887bb5cf4ced1e6ae20e1d676a5ed4ba5a7551`，8 个检查步骤退出码均为 0，日志为本地 `.local-evidence/t06c-postcommit.log`。
