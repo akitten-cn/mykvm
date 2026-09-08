@@ -70,6 +70,12 @@ export const TEXT = {
       screenSwitchRecording: "按下快捷键...",
       screenSwitchCopy:
         "仅服务端注册。按方向快捷键把控制权切到对应方向的相邻客户端；控制远端时再按任意切屏快捷键切回本机。",
+      controlMacHotkey: "控制 Mac",
+      returnWindowsHotkey: "返回 Windows",
+      emergencyReturnHotkey: "紧急返回 Windows",
+      controlHotkeyRecording: "按下控制快捷键...",
+      controlHotkeysCopy:
+        "控制 Mac 会进入当前选中的 Mac；返回 Windows 会结束当前会话；紧急返回会立即优先恢复本地输入。快捷键冲突会在保存时提示。",
       appearanceTitle: "配置",
       language: "语言",
       simplifiedChinese: "cn 中文简体",
@@ -299,6 +305,12 @@ export const TEXT = {
       screenSwitchRecording: "Press shortcut...",
       screenSwitchCopy:
         "Registered only on the server. Press a direction shortcut to jump to an adjacent client; while controlling a peer, press any quick-switch shortcut again to return to this machine.",
+      controlMacHotkey: "Control Mac",
+      returnWindowsHotkey: "Return to Windows",
+      emergencyReturnHotkey: "Emergency return",
+      controlHotkeyRecording: "Press control shortcut...",
+      controlHotkeysCopy:
+        "Control Mac enters the selected Mac; Return to Windows ends the current session; Emergency return immediately restores local input with priority. Conflicts are reported when saving.",
       appearanceTitle: "Configuration",
       language: "Language",
       simplifiedChinese: "cn 中文简体",

@@ -75,6 +75,7 @@ import type {
 } from "./runtime";
 import type {
   AppLanguage,
+  ControlHotkeys,
   Device,
   LayoutState,
   MachineRole,
@@ -221,6 +222,9 @@ function App() {
   const [capturingDirection, setCapturingDirection] = useState<
     "left" | "right" | "up" | "down" | null
   >(null);
+  const [capturingControlHotkey, setCapturingControlHotkey] = useState<
+    keyof ControlHotkeys | null
+  >(null);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("layout");
   const [systemTheme, setSystemTheme] = useState<Exclude<ThemeMode, "system">>(
     () => getSystemTheme(),
@@ -230,6 +234,9 @@ function App() {
   const screenSwitchButtonRefs = useRef<
     Record<"left" | "right" | "up" | "down", HTMLButtonElement | null>
   >({ left: null, right: null, up: null, down: null });
+  const controlHotkeyButtonRefs = useRef<
+    Record<keyof ControlHotkeys, HTMLButtonElement | null>
+  >({ controlMac: null, returnWindows: null, emergencyReturn: null });
   const fileDragTargetIdRef = useRef<string | null>(null);
   const fileTransferFallbackTargetIdRef = useRef<string | null>(null);
   const startupUpdateCheckStarted = useRef(false);
@@ -1498,6 +1505,57 @@ function App() {
     };
   }, [capturingDirection]);
 
+  function setControlHotkey(key: keyof ControlHotkeys, value: string) {
+    updateLayout((layoutState) => ({
+      ...layoutState,
+      controlHotkeys: {
+        ...layoutState.controlHotkeys,
+        [key]: value,
+      },
+    }));
+  }
+
+  const captureControlHotkey = useEffectEvent((event: KeyboardEvent) => {
+    const key = capturingControlHotkey;
+    if (!key) {
+      return;
+    }
+    const hotkey = hotkeyFromKeyboardEvent(event, metaKeyLabel);
+    if (!hotkey) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    setControlHotkey(key, hotkey);
+    setCapturingControlHotkey(null);
+  });
+
+  useEffect(() => {
+    if (!capturingControlHotkey) {
+      return;
+    }
+    const cancelIfOutsideRecorder = (event: Event) => {
+      const target = event.target;
+      const button = controlHotkeyButtonRefs.current[capturingControlHotkey];
+      if (target instanceof Node && button?.contains(target)) {
+        return;
+      }
+      setCapturingControlHotkey(null);
+    };
+    const cancelRecording = () => setCapturingControlHotkey(null);
+
+    window.addEventListener("keydown", captureControlHotkey, true);
+    document.addEventListener("pointerdown", cancelIfOutsideRecorder, true);
+    document.addEventListener("focusin", cancelIfOutsideRecorder, true);
+    window.addEventListener("blur", cancelRecording);
+    return () => {
+      window.removeEventListener("keydown", captureControlHotkey, true);
+      document.removeEventListener("pointerdown", cancelIfOutsideRecorder, true);
+      document.removeEventListener("focusin", cancelIfOutsideRecorder, true);
+      window.removeEventListener("blur", cancelRecording);
+    };
+  }, [capturingControlHotkey]);
+
   function setTransportPortMode(transportPortMode: TransportPortMode) {
     updateLayout((layoutState) => ({
       ...layoutState,
@@ -2630,6 +2688,55 @@ function App() {
                         )}
                       </div>
                     </div>
+                    {(
+                      [
+                        ["controlMac", ui.settings.controlMacHotkey],
+                        ["returnWindows", ui.settings.returnWindowsHotkey],
+                        [
+                          "emergencyReturn",
+                          ui.settings.emergencyReturnHotkey,
+                        ],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <div className="settings-control-row" key={key}>
+                        <span>
+                          {label}
+                          {key === "controlMac" ? (
+                            <span className="info-tooltip-host" tabIndex={0}>
+                              ⓘ
+                              <span className="info-tooltip">
+                                {ui.settings.controlHotkeysCopy}
+                              </span>
+                            </span>
+                          ) : null}
+                        </span>
+                        <button
+                          type="button"
+                          ref={(element) => {
+                            controlHotkeyButtonRefs.current[key] = element;
+                          }}
+                          className={`hotkey-recorder-button ${
+                            capturingControlHotkey === key ? "recording" : ""
+                          }`}
+                          aria-pressed={capturingControlHotkey === key}
+                          onClick={() =>
+                            setCapturingControlHotkey((current) =>
+                              current === key ? null : key,
+                            )
+                          }
+                        >
+                          {capturingControlHotkey === key
+                            ? ui.settings.controlHotkeyRecording
+                            : renderHotkeyTags(
+                                formatEdgeSwitchHotkeyForDisplay(
+                                  layout.controlHotkeys[key],
+                                  metaKeyLabel,
+                                ),
+                                localPlatform,
+                              )}
+                        </button>
+                      </div>
+                    ))}
                   </>
                 ) : null}
                 <div className="settings-control-row">
