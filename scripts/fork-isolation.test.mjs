@@ -163,6 +163,24 @@ test('A37: Mac clipboard stays in-process and checks changeCount before reading'
   assert.match(backend, /mac_watcher\.wait_for_change[\s\S]*?read_content_typed\(\)/)
 })
 
+test('A32-A36: V2 clipboard is authenticated, versioned, bounded, and user-controlled', () => {
+  const protocol = read('src-tauri/src/protocol_v2.rs')
+  assert.match(protocol, /struct ClipboardTextOperation[\s\S]*?operation_id:[\s\S]*?origin_peer:[\s\S]*?system_revision:[\s\S]*?lamport:[\s\S]*?digest:/)
+  assert.match(protocol, /clipboard_text_digest[\s\S]*?SHA256/)
+  const sync = read('src-tauri/src/clipboard_sync.rs')
+  assert.match(sync, /applied_remote_echo[\s\S]*?system_revision[\s\S]*?expected == digest/)
+  assert.match(sync, /IgnoreDuplicate[\s\S]*?IgnoreStale/)
+  const transport = read('src-tauri/src/quic_transport.rs')
+  assert.match(transport, /fn trusted_bulk_peer[\s\S]*?trust_store[\s\S]*?control_peer/)
+  const backend = read('src-tauri/src/lib.rs')
+  assert.match(backend, /operation\.origin_peer != authenticated\.peer_id/)
+  assert.match(backend, /trusted_bulk_peer\(/)
+  assert.match(backend, /manual_resend_text/)
+  const ui = read('src/App.tsx')
+  assert.match(ui, /clipboardTextLimitBytes/)
+  assert.match(ui, /resendCurrentClipboard/)
+})
+
 test('A08/A28: Windows local game hooks bypass context and contain panics', () => {
   const gameMode = read('src-tauri/src/game_mode.rs')
   assert.match(gameMode, /static LOCAL_GAME_MODE: AtomicBool/)

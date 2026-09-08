@@ -178,6 +178,7 @@ impl ClipboardSyncEngine {
         ));
     }
 
+    #[cfg(test)]
     pub(crate) fn current_digest(&self) -> Option<[u8; 32]> {
         self.current_digest
     }

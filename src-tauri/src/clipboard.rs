@@ -320,6 +320,10 @@ impl MacClipboardWatcher {
         std::thread::sleep(timeout);
         macos_change_observed(&mut self.last_change_count, macos_clipboard_change_count())
     }
+
+    pub(crate) fn revision(&self) -> u64 {
+        self.last_change_count.max(0) as u64
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -640,6 +644,27 @@ impl WindowsClipboardListener {
             }
         }
     }
+
+    pub(crate) fn revision(&self) -> u64 {
+        self.last_sequence
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn system_revision() -> u64 {
+    use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
+
+    (unsafe { GetClipboardSequenceNumber() }) as u64
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn system_revision() -> u64 {
+    macos_clipboard_change_count().max(0) as u64
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub(crate) fn system_revision() -> u64 {
+    0
 }
 
 #[cfg(target_os = "windows")]

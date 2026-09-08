@@ -3508,6 +3508,25 @@ fn set_clipboard_target(
     }
 }
 
+pub fn set_authenticated_clipboard_target(
+    target: &Arc<Mutex<Option<ClipboardTarget>>>,
+    device_id: String,
+    addr: String,
+    transport_public_key: String,
+    protocol_version: u16,
+) {
+    set_clipboard_target(
+        target,
+        device_id,
+        addr,
+        transport_public_key,
+        protocol_version,
+        String::new(),
+        String::new(),
+        None,
+    );
+}
+
 fn set_control_clipboard_target(
     target: &Arc<Mutex<Option<ClipboardTarget>>>,
     active: &ActiveTarget,
@@ -7078,6 +7097,7 @@ mod tests {
             paired_controllers: Vec::new(),
             trusted_peers: Vec::new(),
             clipboard_sync: false,
+            clipboard_text_limit_bytes: crate::default_clipboard_text_limit_bytes(),
             file_transfer_enabled: true,
             language: "cn".into(),
             theme_mode: "system".into(),

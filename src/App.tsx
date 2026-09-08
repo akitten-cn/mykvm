@@ -32,6 +32,7 @@ import {
   readRuntimeStatus,
   relaunchApp,
   requestLanPairing,
+  resendClipboard,
   resetPairing,
   restartAsAdmin,
   saveLayout,
@@ -290,6 +291,36 @@ function App() {
     return () => {
       window.removeEventListener("dragover", allowNativeFileDrop);
       window.removeEventListener("drop", allowNativeFileDrop);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
+    let active = true;
+    let unlistenClipboard: (() => void) | null = null;
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen<string>("clipboard-sync-notice", ({ payload }) => {
+          if (active) {
+            setErrorMessage(payload);
+          }
+        }),
+      )
+      .then((unlisten) => {
+        if (active) {
+          unlistenClipboard = unlisten;
+        } else {
+          unlisten();
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+      unlistenClipboard?.();
     };
   }, []);
 
@@ -1346,6 +1377,22 @@ function App() {
       ...layoutState,
       clipboardSync,
     }));
+  }
+
+  function setClipboardTextLimit(clipboardTextLimitBytes: number) {
+    updateLayout((layoutState) => ({
+      ...layoutState,
+      clipboardTextLimitBytes,
+    }));
+  }
+
+  async function resendCurrentClipboard() {
+    setErrorMessage(null);
+    try {
+      await resendClipboard();
+    } catch (error) {
+      setErrorMessage(formatUnknownError(error, ui.errors.clipboardResend));
+    }
   }
 
   function setFileTransferEnabled(fileTransferEnabled: boolean) {
@@ -2801,6 +2848,36 @@ function App() {
                       {ui.common.disabled}
                     </button>
                   </div>
+                </div>
+                <div className="settings-control-row">
+                  <span>{ui.settings.clipboardTextLimit}</span>
+                  <div className="segmented-control">
+                    {[
+                      [256 * 1024, "256 KiB"],
+                      [512 * 1024, "512 KiB"],
+                      [1024 * 1024, "1 MiB"],
+                    ].map(([bytes, label]) => (
+                      <button
+                        key={bytes}
+                        type="button"
+                        className={layout.clipboardTextLimitBytes === bytes ? "active" : ""}
+                        onClick={() => setClipboardTextLimit(Number(bytes))}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="settings-control-row">
+                  <span>{ui.settings.clipboardManualResend}</span>
+                  <button
+                    type="button"
+                    className="compact-button"
+                    disabled={!layout.clipboardSync || !runtime.started}
+                    onClick={() => void resendCurrentClipboard()}
+                  >
+                    {ui.settings.clipboardResendNow}
+                  </button>
                 </div>
                 <div className="settings-control-row">
                   <span>

@@ -129,6 +129,9 @@ export const TEXT = {
       portPlaceholder: "1024-65535",
       activeDevice: "当前设备",
       clipboard: "剪贴板同步",
+      clipboardTextLimit: "文本上限",
+      clipboardManualResend: "手动同步",
+      clipboardResendNow: "重新发送当前文本",
       fileTransfer: "文件传输 (bate)",
       fileTransferCopy:
         "将文件或文件夹拖到相邻屏幕即可跨设备传输，落在哪个设备上就送到哪台。",
@@ -233,6 +236,7 @@ export const TEXT = {
       pairingFailed: "配对失败。",
       fileTransfer: "文件传输失败。",
       writeClipboard: "写入剪贴板失败。",
+      clipboardResend: "重新发送剪贴板失败。",
       checkUpdate: "检查更新失败。",
       installUpdate: "下载安装更新失败。",
       updateSignatureMismatch:
@@ -371,6 +375,9 @@ export const TEXT = {
       portPlaceholder: "1024-65535",
       activeDevice: "Active Device",
       clipboard: "Clipboard Sync",
+      clipboardTextLimit: "Text Limit",
+      clipboardManualResend: "Manual Sync",
+      clipboardResendNow: "Resend Current Text",
       fileTransfer: "File Transfer (bate)",
       fileTransferCopy:
         "Drag files or folders onto an adjacent screen to transfer them across devices — wherever they land is where they go.",
@@ -475,6 +482,7 @@ export const TEXT = {
       pairingFailed: "Pairing failed.",
       fileTransfer: "File transfer failed.",
       writeClipboard: "Failed to write clipboard.",
+      clipboardResend: "Failed to resend clipboard.",
       checkUpdate: "Failed to check for updates.",
       installUpdate: "Failed to download and install the update.",
       updateSignatureMismatch:

@@ -238,6 +238,14 @@ export async function writeClipboardText(text: string): Promise<void> {
   await invoke('write_clipboard_text', { text })
 }
 
+export async function resendClipboard(): Promise<void> {
+  if (!isTauri()) {
+    return
+  }
+
+  await invoke('resend_clipboard')
+}
+
 export async function readPerformanceSample(): Promise<PerformanceSample> {
   if (!isTauri()) {
     return {

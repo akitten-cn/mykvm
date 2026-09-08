@@ -75,6 +75,9 @@ const CLIPBOARD_IDLE_SLEEP_MS: u64 = 25;
 const CLIPBOARD_RETRY_INTERVAL_MS: u64 = 2000;
 const CLIPBOARD_WRITE_ATTEMPTS: usize = 5;
 const CLIPBOARD_WRITE_RETRY_DELAY_MS: u64 = 30;
+const CLIPBOARD_TEXT_LIMIT_MIN_BYTES: usize = 64 * 1024;
+const CLIPBOARD_TEXT_LIMIT_DEFAULT_BYTES: usize = 1024 * 1024;
+const CLIPBOARD_TEXT_LIMIT_MAX_BYTES: usize = 1536 * 1024;
 const FILE_TRANSFER_PROTOCOL: &str = "mykvm.file-transfer.v1";
 const FILE_TRANSFER_CHUNK_BYTES: usize = 256 * 1024;
 const FILE_TRANSFER_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
@@ -85,6 +88,7 @@ const INSTALL_INPUT_SERVICE_ARG: &str = "--install-input-service";
 const UNINSTALL_INPUT_SERVICE_ARG: &str = "--uninstall-input-service";
 const HELPER_PATH_ARG: &str = "--helper-path";
 const RUNTIME_STATE_EVENT: &str = "runtime-state-changed";
+const CLIPBOARD_NOTICE_EVENT: &str = "clipboard-sync-notice";
 
 #[cfg(target_os = "windows")]
 const SINGLE_INSTANCE_MUTEX_NAME: &str = "Local\\MyKVMLocal_SingleInstance";
@@ -251,6 +255,8 @@ struct LayoutState {
     trusted_peers: Vec<TrustedPeerRecord>,
     #[serde(default = "default_clipboard_sync")]
     clipboard_sync: bool,
+    #[serde(default = "default_clipboard_text_limit_bytes")]
+    clipboard_text_limit_bytes: usize,
     #[serde(default = "default_file_transfer_enabled")]
     file_transfer_enabled: bool,
     #[serde(default = "default_language")]
@@ -556,6 +562,8 @@ struct AppRuntime {
     clipboard_seen_text: Arc<Mutex<Option<String>>>,
     clipboard_echo_until: Arc<Mutex<Option<Instant>>>,
     clipboard_last_sequences: Arc<Mutex<HashMap<String, u64>>>,
+    clipboard_sync_engine: Arc<Mutex<Option<clipboard_sync::ClipboardSyncEngine>>>,
+    clipboard_resend_requested: Arc<AtomicBool>,
     remote_input_active: Arc<AtomicBool>,
     main_window_visible: Arc<AtomicBool>,
     main_window_focused: Arc<AtomicBool>,
@@ -600,6 +608,8 @@ impl AppRuntime {
             clipboard_seen_text: Arc::new(Mutex::new(None)),
             clipboard_echo_until: Arc::new(Mutex::new(None)),
             clipboard_last_sequences: Arc::new(Mutex::new(HashMap::new())),
+            clipboard_sync_engine: Arc::new(Mutex::new(None)),
+            clipboard_resend_requested: Arc::new(AtomicBool::new(false)),
             remote_input_active: Arc::new(AtomicBool::new(false)),
             main_window_visible: Arc::new(AtomicBool::new(false)),
             main_window_focused: Arc::new(AtomicBool::new(false)),
@@ -792,7 +802,10 @@ impl AppRuntime {
         let clipboard_seen_text = Arc::clone(&self.clipboard_seen_text);
         let clipboard_echo_until = Arc::clone(&self.clipboard_echo_until);
         let clipboard_last_sequences = Arc::clone(&self.clipboard_last_sequences);
+        let clipboard_sync_engine = Arc::clone(&self.clipboard_sync_engine);
         let clipboard_target = Arc::clone(&self.clipboard_target);
+        let clipboard_target_for_stream = Arc::clone(&self.clipboard_target);
+        let clipboard_target_for_control = Arc::clone(&self.clipboard_target);
         let app_handle_for_file_transfer = self.app_handle.clone();
         let file_transfers = Arc::clone(&self.file_transfers);
         let transport_packets_for_input = Arc::clone(&self.transport_packets);
@@ -970,6 +983,11 @@ impl AppRuntime {
                 if !authenticated_peer_role_allowed(&layout, authenticated.role) {
                     return false;
                 }
+                refresh_authenticated_clipboard_target(
+                    &clipboard_target_for_stream,
+                    &layout,
+                    &authenticated,
+                );
 
                 if handle_file_transfer_packet(
                     &payload,
@@ -984,6 +1002,17 @@ impl AppRuntime {
 
                 if !clipboard_receive_enabled.load(Ordering::Relaxed) {
                     return false;
+                }
+                if handle_v2_clipboard_operation(
+                    &payload,
+                    &authenticated,
+                    &current_peer.id,
+                    &clipboard_sync_engine,
+                    write_clipboard_content_with_retry,
+                ) {
+                    transport_packets_for_stream.fetch_add(1, Ordering::Relaxed);
+                    clipboard_packets.fetch_add(1, Ordering::Relaxed);
+                    return true;
                 }
                 if handle_clipboard_packet(
                     &payload,
@@ -1042,6 +1071,13 @@ impl AppRuntime {
                             })
                         {
                             Ok(response) => {
+                                if let Ok(layout) = layout_for_v2_control.lock() {
+                                    refresh_authenticated_clipboard_target(
+                                        &clipboard_target_for_control,
+                                        &layout,
+                                        &authenticated,
+                                    );
+                                }
                                 if matches!(response, Some(protocol_v2::ControlFrame::CommitAck { .. })) {
                                     if let Ok(mut fault) = fault_for_control.lock() {
                                         *fault = None;
@@ -1582,12 +1618,6 @@ impl AppRuntime {
     }
 
     fn start_clipboard(&self, layout: LayoutState) -> NativeStageStatus {
-        if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED {
-            self.clipboard_receive_enabled
-                .store(false, Ordering::Relaxed);
-            return legacy_data_blocked_status();
-        }
-
         if !layout.clipboard_sync {
             self.stop_clipboard();
             return clipboard_disabled_status();
@@ -1605,14 +1635,59 @@ impl AppRuntime {
         }
 
         let local_peer = local_peer_from_layout(&layout);
+        let remote_role = match layout.machine_role.as_str() {
+            "server" => quic_transport::PeerRole::Receiver,
+            "client" => quic_transport::PeerRole::Controller,
+            _ => {
+                return NativeStageStatus {
+                    state: "error".into(),
+                    detail: "Set this device role before enabling clipboard sync.".into(),
+                }
+            }
+        };
+        let boot_id = match protocol_v2::BootId::generate() {
+            Ok(boot_id) => boot_id,
+            Err(error) => {
+                return NativeStageStatus {
+                    state: "error".into(),
+                    detail: format!("failed to create clipboard boot id: {error:?}"),
+                }
+            }
+        };
+        let engine = match clipboard_sync::ClipboardSyncEngine::new(
+            local_peer.id.clone(),
+            boot_id,
+            clipboard::system_revision(),
+            normalize_clipboard_text_limit_bytes(layout.clipboard_text_limit_bytes),
+        ) {
+            Ok(engine) => engine,
+            Err(error) => {
+                return NativeStageStatus {
+                    state: "error".into(),
+                    detail: error.into(),
+                }
+            }
+        };
+        if let Ok(mut shared_engine) = self.clipboard_sync_engine.lock() {
+            *shared_engine = Some(engine);
+        } else {
+            return NativeStageStatus {
+                state: "error".into(),
+                detail: "clipboard sync state lock poisoned".into(),
+            };
+        }
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
-        let clipboard_seen_text = Arc::clone(&self.clipboard_seen_text);
-        let clipboard_echo_until = Arc::clone(&self.clipboard_echo_until);
+        let clipboard_sync_engine = Arc::clone(&self.clipboard_sync_engine);
+        let clipboard_resend_requested = Arc::clone(&self.clipboard_resend_requested);
         let clipboard_target = Arc::clone(&self.clipboard_target);
         let transport_packets = Arc::clone(&self.transport_packets);
         let clipboard_packets = Arc::clone(&self.clipboard_packets);
+        let app_handle = self.app_handle.clone();
         let Some(quic_transport) = self.quic_transport_handle() else {
+            if let Ok(mut engine) = self.clipboard_sync_engine.lock() {
+                *engine = None;
+            }
             return NativeStageStatus {
                 state: "error".into(),
                 detail: "QUIC transport is not ready.".into(),
@@ -1622,12 +1697,13 @@ impl AppRuntime {
         thread::spawn(move || {
             run_clipboard_sync(
                 quic_transport,
-                local_peer.id,
-                clipboard_seen_text,
-                clipboard_echo_until,
+                remote_role,
+                clipboard_sync_engine,
+                clipboard_resend_requested,
                 clipboard_target,
                 transport_packets,
                 clipboard_packets,
+                app_handle,
                 thread_stop,
             );
         });
@@ -1711,6 +1787,11 @@ impl AppRuntime {
                 signal.store(true, Ordering::Relaxed);
             }
         }
+        if let Ok(mut engine) = self.clipboard_sync_engine.lock() {
+            *engine = None;
+        }
+        self.clipboard_resend_requested
+            .store(false, Ordering::Relaxed);
     }
 }
 
@@ -1887,6 +1968,7 @@ fn runtime_relevant_layout_changed(previous: &LayoutState, next: &LayoutState) -
     previous.input_mode != next.input_mode
         || previous.machine_role != next.machine_role
         || previous.clipboard_sync != next.clipboard_sync
+        || previous.clipboard_text_limit_bytes != next.clipboard_text_limit_bytes
         || previous.control_hotkeys != next.control_hotkeys
         || previous.transport_port_mode != next.transport_port_mode
         || previous.transport_port != next.transport_port
@@ -2909,6 +2991,29 @@ fn write_clipboard_text(text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn resend_clipboard(state: tauri::State<'_, AppRuntime>) -> Result<(), String> {
+    let layout = state.layout_snapshot();
+    if !layout.clipboard_sync {
+        return Err("clipboard sync is disabled".into());
+    }
+    if !state
+        .clipboard_stop
+        .lock()
+        .map(|stop| stop.is_some())
+        .unwrap_or(false)
+    {
+        return Err("clipboard sync is not running".into());
+    }
+    if input::current_clipboard_target(&state.clipboard_target).is_none() {
+        return Err("no authenticated clipboard peer is connected".into());
+    }
+    state
+        .clipboard_resend_requested
+        .store(true, Ordering::Release);
+    Ok(())
+}
+
+#[tauri::command]
 fn read_performance_sample(state: tauri::State<'_, AppRuntime>) -> PerformanceSample {
     performance::read_process_sample(
         state.transport_packets.load(Ordering::Relaxed),
@@ -3666,6 +3771,7 @@ pub fn run() {
             stop_runtime,
             read_clipboard_text,
             write_clipboard_text,
+            resend_clipboard,
             read_performance_sample,
             set_app_upgrading,
             scan_lan_peers,
@@ -4546,6 +4652,7 @@ fn detect_local_layout(app: &AppHandle) -> LayoutState {
         paired_controllers: Vec::new(),
         trusted_peers: Vec::new(),
         clipboard_sync: default_clipboard_sync(),
+        clipboard_text_limit_bytes: default_clipboard_text_limit_bytes(),
         file_transfer_enabled: default_file_transfer_enabled(),
         language: default_language(),
         theme_mode: default_theme_mode(),
@@ -4592,6 +4699,7 @@ fn detect_fallback_layout() -> LayoutState {
         paired_controllers: Vec::new(),
         trusted_peers: Vec::new(),
         clipboard_sync: default_clipboard_sync(),
+        clipboard_text_limit_bytes: default_clipboard_text_limit_bytes(),
         file_transfer_enabled: default_file_transfer_enabled(),
         language: default_language(),
         theme_mode: default_theme_mode(),
@@ -4822,6 +4930,9 @@ fn normalize_saved_layout(saved_layout: LayoutState, detected_layout: LayoutStat
         paired_controllers: normalize_paired_controllers(saved_layout.paired_controllers),
         trusted_peers: normalize_trusted_peers(saved_layout.trusted_peers),
         clipboard_sync: saved_layout.clipboard_sync,
+        clipboard_text_limit_bytes: normalize_clipboard_text_limit_bytes(
+            saved_layout.clipboard_text_limit_bytes,
+        ),
         file_transfer_enabled: saved_layout.file_transfer_enabled,
         language: normalize_language(&saved_layout.language),
         theme_mode: normalize_theme_mode(&saved_layout.theme_mode),
@@ -5050,6 +5161,17 @@ fn default_clipboard_sync() -> bool {
     false
 }
 
+fn default_clipboard_text_limit_bytes() -> usize {
+    CLIPBOARD_TEXT_LIMIT_DEFAULT_BYTES
+}
+
+fn normalize_clipboard_text_limit_bytes(value: usize) -> usize {
+    value.clamp(
+        CLIPBOARD_TEXT_LIMIT_MIN_BYTES,
+        CLIPBOARD_TEXT_LIMIT_MAX_BYTES,
+    )
+}
+
 fn default_file_transfer_enabled() -> bool {
     true
 }
@@ -5239,6 +5361,41 @@ fn authenticated_peer_role_allowed(
         ("client", quic_transport::PeerRole::Controller)
             | ("server", quic_transport::PeerRole::Receiver)
     )
+}
+
+fn refresh_authenticated_clipboard_target(
+    target: &Arc<Mutex<Option<input::ClipboardTarget>>>,
+    layout: &LayoutState,
+    authenticated: &quic_transport::AuthenticatedPeer,
+) {
+    if !layout.clipboard_sync || !authenticated_peer_role_allowed(layout, authenticated.role) {
+        return;
+    }
+    let Some(device) = layout
+        .devices
+        .iter()
+        .find(|device| device.id == authenticated.peer_id && device.online)
+    else {
+        return;
+    };
+    let Some(trusted) = layout
+        .trusted_peers
+        .iter()
+        .find(|peer| peer.id == authenticated.peer_id)
+    else {
+        return;
+    };
+    input::set_authenticated_clipboard_target(
+        target,
+        authenticated.peer_id.clone(),
+        format!(
+            "{}:{}",
+            authenticated.remote_addr.ip(),
+            normalize_quic_port(device.transport_port, device.quic_port)
+        ),
+        trusted.transport_public_key.clone(),
+        device.protocol_version,
+    );
 }
 
 fn normalize_language(language: &str) -> String {
@@ -5432,6 +5589,160 @@ fn clipboard_packet_from_content(
 
 #[allow(clippy::too_many_arguments)]
 fn run_clipboard_sync(
+    quic_transport: quic_transport::TransportHandle,
+    remote_role: quic_transport::PeerRole,
+    sync_engine: Arc<Mutex<Option<clipboard_sync::ClipboardSyncEngine>>>,
+    resend_requested: Arc<AtomicBool>,
+    clipboard_target: Arc<Mutex<Option<input::ClipboardTarget>>>,
+    transport_packets: Arc<AtomicU64>,
+    clipboard_packets: Arc<AtomicU64>,
+    app_handle: AppHandle,
+    stop: Arc<AtomicBool>,
+) {
+    #[cfg(target_os = "windows")]
+    let mut windows_listener = match clipboard::WindowsClipboardListener::start() {
+        Ok(listener) => listener,
+        Err(error) => {
+            log::warn!("clipboard listener unavailable: {error}");
+            return;
+        }
+    };
+    #[cfg(target_os = "macos")]
+    let mut mac_watcher = clipboard::MacClipboardWatcher::start();
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let mut synthetic_revision = 0_u64;
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let mut last_poll = Instant::now() - Duration::from_secs(1);
+
+    while !stop.load(Ordering::Relaxed) {
+        let Some(target) = input::current_clipboard_target(&clipboard_target) else {
+            #[cfg(target_os = "windows")]
+            while matches!(
+                windows_listener.wait_for_change(Duration::ZERO),
+                clipboard::ClipboardRead::Content(_)
+            ) {}
+            #[cfg(target_os = "macos")]
+            mac_watcher.discard_pending_change();
+            thread::sleep(Duration::from_millis(120));
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+            {
+                last_poll = Instant::now() - Duration::from_secs(1);
+            }
+            continue;
+        };
+
+        let manual_resend = resend_requested.swap(false, Ordering::AcqRel);
+        #[cfg(target_os = "windows")]
+        let system_revision = if manual_resend {
+            windows_listener.revision()
+        } else {
+            match windows_listener.wait_for_change(Duration::from_millis(120)) {
+                clipboard::ClipboardRead::Content(revision) => revision,
+                clipboard::ClipboardRead::Unchanged => continue,
+                clipboard::ClipboardRead::Error(error) => {
+                    log::warn!("clipboard listener stopped: {error}");
+                    return;
+                }
+                clipboard::ClipboardRead::Empty
+                | clipboard::ClipboardRead::Busy
+                | clipboard::ClipboardRead::Unsupported => continue,
+            }
+        };
+
+        #[cfg(target_os = "macos")]
+        let system_revision = if manual_resend {
+            mac_watcher.revision()
+        } else {
+            if !mac_watcher.wait_for_change(Duration::from_millis(120)) {
+                continue;
+            }
+            mac_watcher.revision()
+        };
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        let system_revision = {
+            if !manual_resend
+                && last_poll.elapsed() < Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS)
+            {
+                thread::sleep(Duration::from_millis(CLIPBOARD_IDLE_SLEEP_MS));
+                continue;
+            }
+            last_poll = Instant::now();
+            synthetic_revision = synthetic_revision.saturating_add(1);
+            synthetic_revision
+        };
+
+        let text = match clipboard::read_content_typed() {
+            clipboard::ClipboardRead::Content(ClipboardContent::Text(text)) => text,
+            clipboard::ClipboardRead::Content(ClipboardContent::Image(_))
+            | clipboard::ClipboardRead::Unchanged
+            | clipboard::ClipboardRead::Empty
+            | clipboard::ClipboardRead::Busy
+            | clipboard::ClipboardRead::Unsupported => continue,
+            clipboard::ClipboardRead::Error(error) => {
+                log::warn!("clipboard read failed: {error}");
+                continue;
+            }
+        };
+        let decision = sync_engine
+            .lock()
+            .ok()
+            .and_then(|mut engine| {
+                engine.as_mut().map(|engine| {
+                    if manual_resend {
+                        engine.manual_resend_text(system_revision, text)
+                    } else {
+                        engine.observe_local_text(system_revision, text)
+                    }
+                })
+            });
+        let Some(decision) = decision else {
+            return;
+        };
+        let operation = match decision {
+            clipboard_sync::LocalClipboardDecision::Send(operation) => operation,
+            clipboard_sync::LocalClipboardDecision::Oversized { bytes, limit } => {
+                log::warn!("clipboard text exceeds configured limit: {bytes} bytes, limit {limit}");
+                let _ = app_handle.emit(
+                    CLIPBOARD_NOTICE_EVENT,
+                    format!("Clipboard text is {bytes} bytes; the configured limit is {limit} bytes."),
+                );
+                continue;
+            }
+            clipboard_sync::LocalClipboardDecision::Echo
+            | clipboard_sync::LocalClipboardDecision::Unchanged => continue,
+        };
+        let payload = match operation.encode() {
+            Ok(payload) => payload,
+            Err(error) => {
+                log::warn!("clipboard operation encode failed: {error:?}");
+                continue;
+            }
+        };
+        let peer = match quic_transport.trusted_bulk_peer(
+            &target.device_id,
+            remote_role,
+            target.addr.clone(),
+            target.protocol_version,
+        ) {
+            Ok(peer) => peer,
+            Err(error) => {
+                log::warn!("clipboard target is not authorized: {error}");
+                continue;
+            }
+        };
+        match quic_transport.send_stream_expect_ack(peer, payload) {
+            Ok(()) => {
+                transport_packets.fetch_add(1, Ordering::Relaxed);
+                clipboard_packets.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(error) => log::warn!("clipboard send failed: {error}"),
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments, dead_code)]
+fn run_legacy_clipboard_sync(
     quic_transport: quic_transport::TransportHandle,
     local_peer_id: String,
     clipboard_seen_text: Arc<Mutex<Option<String>>>,
@@ -5662,6 +5973,70 @@ where
     }
 
     Err(last_error.unwrap_or_else(|| "failed to write clipboard content".into()))
+}
+
+fn handle_v2_clipboard_operation<F>(
+    payload: &[u8],
+    authenticated: &quic_transport::AuthenticatedPeer,
+    local_peer_id: &str,
+    sync_engine: &Arc<Mutex<Option<clipboard_sync::ClipboardSyncEngine>>>,
+    mut write_content: F,
+) -> bool
+where
+    F: FnMut(&ClipboardContent) -> Result<(), String>,
+{
+    handle_v2_clipboard_operation_with_revision(
+        payload,
+        authenticated,
+        local_peer_id,
+        sync_engine,
+        &mut write_content,
+        clipboard::system_revision,
+    )
+}
+
+fn handle_v2_clipboard_operation_with_revision<F, R>(
+    payload: &[u8],
+    authenticated: &quic_transport::AuthenticatedPeer,
+    local_peer_id: &str,
+    sync_engine: &Arc<Mutex<Option<clipboard_sync::ClipboardSyncEngine>>>,
+    mut write_content: F,
+    revision_after_write: R,
+) -> bool
+where
+    F: FnMut(&ClipboardContent) -> Result<(), String>,
+    R: FnOnce() -> u64,
+{
+    let Ok(operation) = clipboard_sync::ClipboardTextOperation::decode(payload) else {
+        return false;
+    };
+    if operation.origin_peer != authenticated.peer_id || operation.origin_peer == local_peer_id {
+        return false;
+    }
+    // Stream handlers can run concurrently. Keep the clipboard engine lock
+    // through decide/write/commit so an older operation cannot finish its OS
+    // write after a newer operation and roll the deterministic winner back.
+    // This lock is clipboard-only and never participates in the input path.
+    let Ok(mut shared_engine) = sync_engine.lock() else {
+        return false;
+    };
+    let Some(engine) = shared_engine.as_mut() else {
+        return false;
+    };
+    let decision = engine.consider_remote(&operation);
+    match decision {
+        clipboard_sync::RemoteClipboardDecision::IgnoreDuplicate
+        | clipboard_sync::RemoteClipboardDecision::IgnoreStale => return true,
+        clipboard_sync::RemoteClipboardDecision::RejectInvalid => return false,
+        clipboard_sync::RemoteClipboardDecision::Apply => {}
+    }
+    if let Err(error) = write_content(&ClipboardContent::Text(operation.text.clone())) {
+        log::warn!("clipboard receive write failed: {error}");
+        return false;
+    }
+    let applied_revision = revision_after_write();
+    engine.commit_remote(&operation, applied_revision);
+    true
 }
 
 fn handle_clipboard_packet(
@@ -7957,6 +8332,7 @@ mod tests {
             paired_controllers: Vec::new(),
             trusted_peers: Vec::new(),
             clipboard_sync: false,
+            clipboard_text_limit_bytes: default_clipboard_text_limit_bytes(),
             file_transfer_enabled: true,
             language: "cn".into(),
             theme_mode: "system".into(),
@@ -8963,6 +9339,128 @@ mod tests {
     }
 
     #[test]
+    fn a33_a34_v2_clipboard_requires_origin_binding_and_commits_only_after_write() {
+        let mut sender = clipboard_sync::ClipboardSyncEngine::new(
+            "windows-controller".into(),
+            protocol_v2::BootId([1; 16]),
+            10,
+            CLIPBOARD_TEXT_LIMIT_DEFAULT_BYTES,
+        )
+        .unwrap();
+        let clipboard_sync::LocalClipboardDecision::Send(operation) =
+            sender.observe_local_text(11, "中文🙂\ncode".into())
+        else {
+            panic!("expected local operation")
+        };
+        let payload = operation.encode().unwrap();
+        let engine = Arc::new(Mutex::new(Some(
+            clipboard_sync::ClipboardSyncEngine::new(
+                "mac-receiver".into(),
+                protocol_v2::BootId([2; 16]),
+                20,
+                CLIPBOARD_TEXT_LIMIT_DEFAULT_BYTES,
+            )
+            .unwrap(),
+        )));
+        let authenticated = quic_transport::AuthenticatedPeer {
+            peer_id: "different-controller".into(),
+            role: quic_transport::PeerRole::Controller,
+            trust_revision: 1,
+            connection_generation: 1,
+            remote_addr: "127.0.0.1:47834".parse().unwrap(),
+        };
+        let mut writes = Vec::new();
+        assert!(!handle_v2_clipboard_operation_with_revision(
+            &payload,
+            &authenticated,
+            "mac-receiver",
+            &engine,
+            |content| {
+                writes.push(content.signature());
+                Ok(())
+            },
+            || 21,
+        ));
+        assert!(writes.is_empty());
+
+        let authenticated = quic_transport::AuthenticatedPeer {
+            peer_id: "windows-controller".into(),
+            ..authenticated
+        };
+        assert!(handle_v2_clipboard_operation_with_revision(
+            &payload,
+            &authenticated,
+            "mac-receiver",
+            &engine,
+            |content| {
+                writes.push(content.signature());
+                Ok(())
+            },
+            || 21,
+        ));
+        assert_eq!(writes.len(), 1);
+        assert_eq!(
+            engine
+                .lock()
+                .unwrap()
+                .as_mut()
+                .unwrap()
+                .observe_local_text(21, operation.text),
+            clipboard_sync::LocalClipboardDecision::Echo
+        );
+    }
+
+    #[test]
+    fn a33_v2_clipboard_write_failure_leaves_operation_retryable() {
+        let mut sender = clipboard_sync::ClipboardSyncEngine::new(
+            "windows-controller".into(),
+            protocol_v2::BootId([1; 16]),
+            10,
+            CLIPBOARD_TEXT_LIMIT_DEFAULT_BYTES,
+        )
+        .unwrap();
+        let clipboard_sync::LocalClipboardDecision::Send(operation) =
+            sender.observe_local_text(11, "keep old clipboard".into())
+        else {
+            panic!("expected local operation")
+        };
+        let payload = operation.encode().unwrap();
+        let engine = Arc::new(Mutex::new(Some(
+            clipboard_sync::ClipboardSyncEngine::new(
+                "mac-receiver".into(),
+                protocol_v2::BootId([2; 16]),
+                20,
+                CLIPBOARD_TEXT_LIMIT_DEFAULT_BYTES,
+            )
+            .unwrap(),
+        )));
+        let authenticated = quic_transport::AuthenticatedPeer {
+            peer_id: "windows-controller".into(),
+            role: quic_transport::PeerRole::Controller,
+            trust_revision: 1,
+            connection_generation: 1,
+            remote_addr: "127.0.0.1:47834".parse().unwrap(),
+        };
+        assert!(!handle_v2_clipboard_operation_with_revision(
+            &payload,
+            &authenticated,
+            "mac-receiver",
+            &engine,
+            |_| Err("clipboard busy".into()),
+            || 21,
+        ));
+        assert_eq!(
+            engine
+                .lock()
+                .unwrap()
+                .as_mut()
+                .unwrap()
+                .consider_remote(&operation),
+            clipboard_sync::RemoteClipboardDecision::Apply
+        );
+    }
+
+    #[test]
     fn file_transfer_target_uses_peer_quic_port() {
         let layout = test_layout();
         let target = file_transfer_target_for_device(&layout, &[], "peer-client-10-0-0-2").unwrap();
@@ -9260,5 +9758,33 @@ mod tests {
             &layout,
             quic_transport::PeerRole::Receiver
         ));
+    }
+
+    #[test]
+    fn authenticated_clipboard_target_uses_trusted_identity_and_listening_port() {
+        let mut layout = test_layout();
+        layout.clipboard_sync = true;
+        layout.trusted_peers = vec![TrustedPeerRecord {
+            id: "peer-client-10-0-0-2".into(),
+            transport_public_key: "trusted-peer-certificate".into(),
+            role: "receiver".into(),
+            trust_revision: 1,
+            paired_at_ms: 1,
+        }];
+        let target = Arc::new(Mutex::new(None));
+        refresh_authenticated_clipboard_target(
+            &target,
+            &layout,
+            &quic_transport::AuthenticatedPeer {
+                peer_id: "peer-client-10-0-0-2".into(),
+                role: quic_transport::PeerRole::Receiver,
+                trust_revision: 1,
+                connection_generation: 1,
+                remote_addr: "10.0.0.2:60123".parse().unwrap(),
+            },
+        );
+        let selected = input::current_clipboard_target(&target).unwrap();
+        assert_eq!(selected.addr, "10.0.0.2:47834");
+        assert_eq!(selected.transport_public_key, "trusted-peer-certificate");
     }
 }

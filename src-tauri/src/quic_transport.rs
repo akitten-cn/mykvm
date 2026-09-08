@@ -508,6 +508,18 @@ impl TransportHandle {
             .control_peer(peer_id, role, addr, protocol_version)
     }
 
+    pub fn trusted_bulk_peer(
+        &self,
+        peer_id: &str,
+        role: PeerRole,
+        addr: String,
+        protocol_version: u16,
+    ) -> Result<PeerEndpoint, String> {
+        self.trust_store
+            .control_peer(peer_id, role, addr, protocol_version)
+            .map(|peer| peer.endpoint)
+    }
+
     pub fn open_control(
         &self,
         peer: ControlPeer,
@@ -2111,11 +2123,22 @@ mod tests {
         )
         .unwrap();
 
-        let peer = controller.peer(
-            format!("127.0.0.1:{}", receiver.port()),
-            receiver.public_key().into(),
-            PROTOCOL_VERSION,
-        );
+        assert!(controller
+            .trusted_bulk_peer(
+                "receiver-a",
+                PeerRole::Controller,
+                format!("127.0.0.1:{}", receiver.port()),
+                PROTOCOL_VERSION,
+            )
+            .is_err());
+        let peer = controller
+            .trusted_bulk_peer(
+                "receiver-a",
+                PeerRole::Receiver,
+                format!("127.0.0.1:{}", receiver.port()),
+                PROTOCOL_VERSION,
+            )
+            .unwrap();
         controller
             .send_stream_expect_ack(peer, b"authenticated".to_vec())
             .unwrap();
