@@ -15,7 +15,7 @@
 |T05.b|完成|逐设备持久证书信任、双方 TLS 证书出示、连接代次与角色绑定；配对声明绑定实际连接证书|
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
 
-最新受测代码 SHA 将在本原子任务提交后写入 TEST_REPORT。当前 135 个 Rust 库测试通过，其中包括真实 QUIC 本机回环的已授权接收和未授权 datagram 拒绝。7 项静态隔离检查、前端 lint/build、Mac cargo check、新核心格式检查通过。全仓严格 fmt/clippy 尚未通过，详见 TEST_REPORT.md。
+最新受测代码 SHA：`f51b6fa8b693615d7e1a3a782c2c2146c7b5d775`。当前 135 个 Rust 库测试通过，其中包括真实 QUIC 本机回环的已授权接收和未授权 datagram 拒绝。7 项静态隔离检查、前端 lint/build、Mac cargo check、新核心格式检查通过。全仓严格 fmt/clippy 尚未通过，详见 TEST_REPORT.md。
 
 平台证据独立记录：Mac 库编译及前端构建通过；Mac 应用打包和运行未执行；Windows 构建 pending_environment；Windows/LOL 实机 optional_not_run。没有安装包、公开 fork、推送或发布。
 
