@@ -7,3 +7,5 @@
 提交后 `.local-evidence/t09c-postcommit.log` 记录 198 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check、相关 rustfmt 和干净工作树均退出 0。A05、A06 已通过。A28 只有源码审查部分证据：hook 不执行磁盘或 GUI 调用，网络投递为有界非阻塞路径；彻底移除回调中的布局/context mutex 等工作留给 T10，因此尚不标记通过。
 
 本机没有 Windows Rust 标准库，W01 保持 `pending_environment`。T11 的 `WindowsV2FocusPort` 仍故意返回 `Unavailable`，控制端总门禁仍为 false；本提交不能作为可用版。
+
+设置界面 SHA `d445e9b9757077500f896534b94a1104f3745edd` 增加三个中英文快捷键录入项和行为说明，复用现有按键录制与后端保存错误展示。提交后前端 lint/build 和干净工作树检查通过，日志为 `.local-evidence/t09d-postcommit.log`。

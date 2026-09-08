@@ -138,3 +138,5 @@ A26 使用真实本机 QUIC 回环：两个 bulk handler 同时阻塞时，持�
 A05 以共享原子去重器覆盖系统入口、hook 入口和自动重复；释放前不会二次派发。A06 在接收端先注入 Ctrl/Alt down，再处理 EndSession，断言两个修饰键均按账本逆序提交真实 up。另有纯测试覆盖返回与紧急返回精确修饰键区分、当前选中远端显示器解析、客户端不注册及快捷键冲突拒绝。
 
 实现 SHA `9aed9a81aa928ad67ba2bf298d49b63027b44dd6` 的 `t09c-postcommit` 检查退出码 0：198 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和相关格式检查通过。A28 仍为 not_run，已有源码审查部分证据；Windows hook 快速路径的锁与 FFI 边界在 T10 完成。W01 保持 pending_environment，未执行 Windows 或 LOL 实机。
+
+设置界面 SHA `d445e9b9757077500f896534b94a1104f3745edd` 的前端 lint/build 退出码 0，三个录入项均使用已有录制组件和后端冲突错误通道；证据为 `.local-evidence/t09d-postcommit.log`。未启动应用或操作系统快捷键。
