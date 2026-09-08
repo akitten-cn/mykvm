@@ -1174,17 +1174,27 @@
       "review_focus": [
         "先功能后美化；不能增加视频预览或默认按键日志"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../../src-tauri/src/lib.rs tray actions, IPC validation and redacted diagnostics",
+        "../../src-tauri/src/input.rs redacted input logging",
+        "../../src/i18n.ts paired locale keys",
+        "../../scripts/fork-isolation.test.mjs A39/A43/A44",
+        "../T18-settings-diagnostics.md",
+        ".local-evidence/t18-postcommit-rust.log",
+        ".local-evidence/t18-postcommit-isolation.log",
+        ".local-evidence/t18-postcommit-build.log",
+        ".local-evidence/t18-postcommit-mac-check.log"
+      ],
       "blocked_reason": null
     },
     {

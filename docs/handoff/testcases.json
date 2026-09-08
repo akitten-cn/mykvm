@@ -494,7 +494,14 @@
       "method": "恶意字段、含密码的 fixture、诊断导出",
       "expected": "参数被校验；日志不含正文、密钥和完整键流",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": [
+        "../T18-settings-diagnostics.md",
+        "tests::a43_ipc_validation_rejects_oversized_and_malformed_fields",
+        "tests::a43_diagnostic_device_line_redacts_private_fixture_values",
+        "tests::a43_tray_emergency_sets_local_gate_before_queueing",
+        "scripts/fork-isolation.test.mjs A43"
+      ]
     },
     {
       "id": "A44",
@@ -503,7 +510,12 @@
       "method": "检查新增 i18n key 与错误码映射",
       "expected": "无缺键/硬编码未翻译新增用户状态",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": [
+        "../T18-settings-diagnostics.md",
+        "scripts/fork-isolation.test.mjs A44",
+        "npm run build"
+      ]
     },
     {
       "id": "M01",

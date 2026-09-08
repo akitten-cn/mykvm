@@ -210,3 +210,11 @@ A39 静态核对 Rust `AppRuntime` 在任何 WebView 创建前初始化，设置
 A41 在 Mac 本机创建权限 0600 的 Unix socket，第二次 bind 被识别为已有实例，并把 `activate` 消息交给第一实例。生产入口在 Tauri 运行和输入捕获前取得单实例所有权，所以第二实例只请求第一实例创建设置窗口。Windows 保留既有命名 mutex/event 和 release 无控制台属性，但本轮未在 Windows 编译。
 
 实现 SHA `e838ec27a5c863ad234b136da186ba2cdc1e1130` 的提交后检查退出码 0：222 个 Rust 库测试、19 项隔离检查、前端 lint/build 和 Mac cargo check 通过。M02 菜单栏真实关闭/重开及用户自启安装未执行，状态为 `not_run`；W02 为 `optional_not_run`。
+
+## T18 中文设置与脱敏诊断
+
+菜单栏新增“紧急返回 Windows”，先写独立本地门控再投递最高优先级动作；后台启停项显示“暂停后台服务/恢复后台服务”。现有设置页已覆盖角色、三个控制热键、游戏模式、修饰键映射、文本/图片剪贴板和用户自启。TypeScript AST 测试比较中英文资源的完整键集合，前端类型检查和构建同时通过。
+
+A43 为 `save_layout` 增加 2 MiB 总输入上限、枚举/设备数/屏幕尺寸和缩放校验；手工主机、六位验证码及剪贴板文本在进入网络或系统 API 前验证长度和控制字符。恶意超长字段、NaN 缩放、注入式语言和换行主机均被拒绝。复制的诊断报告将本机身份、设备名、IP/host、日志和配置路径替换为脱敏标记；含 `password=hunter2` 的设备 fixture 不会出现在报告行。默认日志扫描禁止剪贴板正文、配对密钥、公钥和具体键码字段。
+
+最终 SHA `7d0e5631bb6be5da1e07f6691cd2d831948ca843` 的提交后检查退出码 0：225 个 Rust 库测试、22 项隔离检查、前端 lint/build 和 Mac cargo check 通过。未启动应用或读取真实剪贴板；Windows 构建仍为 `pending_environment`。

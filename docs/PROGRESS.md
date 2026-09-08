@@ -36,6 +36,7 @@
 |T15|完成|认证 V2 文本 bulk、操作版本/摘要、确定性冲突与精确回声识别；可配置文本上限和手动重发|
 |T16|完成|图片同步默认关闭且游戏模式暂停；尺寸/编码预检、48 MiB 帧上限和 128 MiB 全局 bulk 字节预算；超限可见|
 |T17|完成|Rust 后台独立于设置 WebView；按需创建/销毁窗口、Mac/Unix 单实例唤起、显式普通用户自启和中文菜单栏|
+|T18|完成|菜单栏紧急返回与暂停；主要 IPC 边界验证；诊断导出和输入日志脱敏；中英文键集合自动核对|
 |T19|完成|test-only 双身份真实 QUIC 回环；FakeInjector 覆盖可靠输入、motion 乱序、旧 session、断流释放和租约释放|
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
 
@@ -47,4 +48,4 @@ T09 当前实现 SHA：`9aed9a81aa928ad67ba2bf298d49b63027b44dd6`。提交后检
 
 设置界面 SHA `d445e9b9757077500f896534b94a1104f3745edd` 已补三个控制热键的中英文录入和说明，前端检查日志为 `.local-evidence/t09d-postcommit.log`。T10.a SHA `2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7` 完成游戏模式最短放行；T10.b SHA `15fd004b5f471f7f83cc3b86fffb1a448e74dfaf` 将其余重路径移出 hook，检查日志为 `.local-evidence/t10b-postcommit.log`。T11 SHA `19191db65aaac1743823538df3d4c4ad066e6c5b` 完成 Windows 单次焦点交接与失败提示，检查日志为 `.local-evidence/t11-postcommit.log`。T08.d SHA `3dfca829cc74e7d4ff4c47ce2fb826ecd10af2ee` 完成显示布局版本和坐标门控。下一原子任务审查控制端总门禁；Windows 构建和双机试用状态仍独立保留。
 
-控制端门禁审查 SHA `63154dcbfc4ff68ccb0d1a911c1652b0ba54fde9` 已开启认证 V2 Windows 控制路径，旧 LAN 和特权路径继续关闭。T12/T19 已完成键位和安全回环。T13 SHA `3a5f7dc5f0e010c6881b04b1259986ec2105ac13` 完成 Windows 原生通知，Windows 编译仍为 pending_environment。T14 SHA `e2a3ccdb47ad1680ccef8f71dd182c2706ca614d` 完成 Mac 进程内剪贴板与 changeCount 门控。T15 核心 SHA `73f4868d489bd2ae8e9bc151fcdd9b46aa7ff0c9`、接线 SHA `112539cd9a0e20851fc55c03df93d0b9c89ded78` 完成认证双向文本同步。T16 SHA `f7e5a07f1e584fcc44ec50f1f376f3a29e8ba15d` 完成可选图片同步和全局 bulk 内存预算。T17 SHA `e838ec27a5c863ad234b136da186ba2cdc1e1130` 完成后台窗口生命周期与 Mac 单实例；M02/M03 真实运行未执行。下一原子任务为 T18 中文设置、错误码和脱敏诊断。
+控制端门禁审查 SHA `63154dcbfc4ff68ccb0d1a911c1652b0ba54fde9` 已开启认证 V2 Windows 控制路径，旧 LAN 和特权路径继续关闭。T12/T19 已完成键位和安全回环。T13 SHA `3a5f7dc5f0e010c6881b04b1259986ec2105ac13` 完成 Windows 原生通知，Windows 编译仍为 pending_environment。T14 SHA `e2a3ccdb47ad1680ccef8f71dd182c2706ca614d` 完成 Mac 进程内剪贴板与 changeCount 门控。T15 核心 SHA `73f4868d489bd2ae8e9bc151fcdd9b46aa7ff0c9`、接线 SHA `112539cd9a0e20851fc55c03df93d0b9c89ded78` 完成认证双向文本同步。T16 SHA `f7e5a07f1e584fcc44ec50f1f376f3a29e8ba15d` 完成可选图片同步和全局 bulk 内存预算。T17 SHA `e838ec27a5c863ad234b136da186ba2cdc1e1130` 完成后台窗口生命周期与 Mac 单实例。T18 最终 SHA `7d0e5631bb6be5da1e07f6691cd2d831948ca843` 完成菜单动作、IPC 与诊断安全；M02/M03 真实运行未执行。下一原子任务按 taskboard 为 P4 的集成与交付准备。
