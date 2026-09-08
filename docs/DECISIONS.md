@@ -27,3 +27,7 @@ Windows runner 不可用时保留真实原生检查工作流，状态记 pending
 每台设备复用自己的持久自签名传输证书作为配对身份，不新增密码学算法。人工配对成功后，双方分别保存对方证书、角色和单调信任版本。TLS 客户端总是出示本机证书；服务端先验证 CertificateVerify 所证明的私钥持有，再以证书完整 DER 精确匹配持久记录，生成包含 peer_id、角色、信任版本、远端地址和本进程连接代次的 `AuthenticatedPeer`。输入 datagram 只为已授权连接启动读取器；普通 stream 也必须已授权并满足方向角色。
 
 未授权连接只允许现有的限时人工配对确认。确认包声明的证书必须等于 TLS 连接实际出示的证书；成功后立即关闭该未授权连接，后续数据必须新建连接并重新完成授权。发现广播仍可提供地址，但不会修改 `trustedPeers`。旧数据发送 API 暂时保留给迁移对照，并受全局旧 LAN 门禁；T06 新路径必须从持久信任构造目标，不能使用发现广播替换的证书。
+
+## ADR-007：Mac 修饰键采用字面默认
+
+Windows Ctrl 默认映射为 Mac Control，Windows 键默认映射为 Command，Alt 默认映射为 Option；这使 Ctrl+C 保留终端中断语义，Win+C/V 提供 Mac 复制粘贴语义。Ctrl/Command 互换作为显式预设提供。映射在接收端 key-down 时冻结，Caps Lock 按普通键注入；应用不假设或修改用户的 macOS 输入源快捷键。

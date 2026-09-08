@@ -855,17 +855,21 @@
       "review_focus": [
         "Mac真实注入测试需用户授权；不自动往 Codex/终端发送任意命令"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../T12-mac-key-mapping.md",
+        "implementation SHA 7bf95bb7ebf89c93a04dda839e3423e681935c9d",
+        ".local-evidence/t12-postcommit.log"
+      ],
       "blocked_reason": null
     },
     {

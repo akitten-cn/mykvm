@@ -158,3 +158,11 @@ A09 的路由测试使用拒绝型 FakeFocus，证明单次尝试后恢复本地
 A29 自动化覆盖逻辑坐标到负原点/缩放原生范围的映射、边界检查、旧 layout_revision 和未知范围拒绝、可靠点击拒绝前不消耗序号，以及布局改变后的会话关闭与按键释放。生产路径每 500 ms 只读刷新显示器；变化后更新广播布局并失败关闭，motion 与按钮/滚轮均在注入前映射。
 
 实现 SHA `3dfca829cc74e7d4ff4c47ce2fb826ecd10af2ee` 的提交后检查退出码 0：203 个 Rust 库测试、12 项隔离检查、前端 lint/build、Mac cargo check 和干净工作树通过，证据为 `.local-evidence/t08d-postcommit.log`。A29 标记 pass，T08 自动化闭环。Mac 应用/显示器拔插、Windows 编译和双机坐标体验未运行。
+
+## T12 Mac 键位映射
+
+A30 的表驱动测试覆盖左右 Ctrl/Win/Alt 的默认保留与显式 Ctrl/Command 互换，并复用既有测试核对左右 Shift、OEM 标点、数字区、功能键和 Caps Lock。A31 的接收会话测试分别提交 Ctrl+C 与 Win+C/V，证明默认不会把终端中断键暗中改成 Command，同时 Windows 键序列保持 Mac Command 语义。
+
+接收端在 pressed-state 登记前映射，测试在右 Ctrl 按下后改变配置，仍按 key-down 时冻结的右 Command 目标释放。Caps Lock 的旧 Ctrl+Space 合成路径已移除，生产隔离检查确认 receiver-only 分支只报告 injector 状态且不创建本地 capture。权限拒绝逻辑已由 FakeInjector 和生产路径静态检查覆盖，但 M04/M06 需要真实辅助功能授权和固定测试应用，本轮未运行。
+
+实现 SHA `7bf95bb7ebf89c93a04dda839e3423e681935c9d` 的 `.local-evidence/t12-postcommit.log` 退出码 0：205 个 Rust 库测试、13 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查通过。A19、A20、A30、A31 为 pass；Mac 应用/真实按键/IME 为 not_run，Windows 原生编译为 pending_environment。

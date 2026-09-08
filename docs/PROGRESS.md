@@ -30,6 +30,7 @@
 |T10.a|完成|持久化手动游戏模式、中英文开关、hook 首指令原子放行、panic FFI 边界和 context try-lock；桌面/远程重路径迁移留给 T10.b|
 |T10.b|完成|1024 项有界 hook 事件队列；回调只做缓存/原子判断、事件复制和 try_send，慢路径移至捕获线程；满队列失败开放|
 |T11|完成|Windows 屏幕外原生焦点窗口；每次请求单次前台交接，失败保留本地并给出 Alt+Tab 中文提示，返回时单次恢复原窗口|
+|T12|完成|Mac 默认保留 Ctrl/Command/Option，显式互换预设；左右键与按下时映射冻结；Caps 按普通键注入，权限失败拒绝会话|
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
 
 T08.c 最后实现 SHA：`5d8bdb104139738bb7f7c9cfece3391019fe41d1`。提交后完整检查通过：191 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查，证据日志为本地 `.local-evidence/t08-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
@@ -40,4 +41,4 @@ T09 当前实现 SHA：`9aed9a81aa928ad67ba2bf298d49b63027b44dd6`。提交后检
 
 设置界面 SHA `d445e9b9757077500f896534b94a1104f3745edd` 已补三个控制热键的中英文录入和说明，前端检查日志为 `.local-evidence/t09d-postcommit.log`。T10.a SHA `2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7` 完成游戏模式最短放行；T10.b SHA `15fd004b5f471f7f83cc3b86fffb1a448e74dfaf` 将其余重路径移出 hook，检查日志为 `.local-evidence/t10b-postcommit.log`。T11 SHA `19191db65aaac1743823538df3d4c4ad066e6c5b` 完成 Windows 单次焦点交接与失败提示，检查日志为 `.local-evidence/t11-postcommit.log`。T08.d SHA `3dfca829cc74e7d4ff4c47ce2fb826ecd10af2ee` 完成显示布局版本和坐标门控。下一原子任务审查控制端总门禁；Windows 构建和双机试用状态仍独立保留。
 
-控制端门禁审查 SHA `63154dcbfc4ff68ccb0d1a911c1652b0ba54fde9` 已开启认证 V2 Windows 控制路径，旧 LAN 和特权路径继续关闭。下一原子任务为 T12 Mac 键位映射完善；Windows 构建和双机试用状态仍独立保留。
+控制端门禁审查 SHA `63154dcbfc4ff68ccb0d1a911c1652b0ba54fde9` 已开启认证 V2 Windows 控制路径，旧 LAN 和特权路径继续关闭。T12 实现 SHA `7bf95bb7ebf89c93a04dda839e3423e681935c9d` 完成显式 Mac 键位策略，提交后 205 个 Rust 库测试、13 项隔离检查、前端 lint/build 和 Mac cargo check 通过，日志为 `.local-evidence/t12-postcommit.log`。M04/M06 真实权限、键位和输入法测试未运行。下一原子任务为 T19 Mac 安全回环与故障注入套件。

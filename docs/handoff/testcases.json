@@ -321,7 +321,12 @@
       "method": "左右 Ctrl/Win/Alt/Shift 测试表",
       "expected": "默认映射和互换预设符合设计",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": [
+        "../T12-mac-key-mapping.md",
+        "input::tests::a30_a31_default_modifier_map_preserves_control_meta_and_alt",
+        "input::tests::a30_explicit_control_command_swap_preset_is_symmetric"
+      ]
     },
     {
       "id": "A31",
@@ -330,7 +335,11 @@
       "method": "默认 Ctrl+C 与 Win+C/V 输入序列",
       "expected": "中断/Command 序列区分，不暗中重映射",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": [
+        "../T12-mac-key-mapping.md",
+        "session_runtime::tests::a30_a31_modifier_mapping_defaults_literal_and_freezes_at_key_down"
+      ]
     },
     {
       "id": "A32",
