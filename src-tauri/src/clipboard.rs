@@ -21,6 +21,7 @@ pub(crate) enum ClipboardContent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(any(test, target_os = "windows")), allow(dead_code))]
 pub(crate) enum ClipboardRead<T> {
     Content(T),
     Unchanged,
@@ -34,6 +35,7 @@ pub(crate) enum ClipboardRead<T> {
 /// the platform sequence changes is discarded because it can belong to the old
 /// format; busy attempts may retry, while stable empty/error results remain
 /// distinguishable and never become an empty remote write.
+#[cfg(any(test, target_os = "windows"))]
 fn resolve_stable_read<T>(
     attempts: impl IntoIterator<Item = (u64, u64, ClipboardRead<T>)>,
     max_attempts: usize,
@@ -112,8 +114,17 @@ pub(crate) fn write_content(content: &ClipboardContent) -> Result<(), String> {
 /// Reads whatever is currently on the clipboard. The shared policy lives here:
 /// when the platform can identify a current image format, wait for an image
 /// read instead of falling back to stale text from a previous clipboard format.
-pub(crate) fn read_content() -> Option<ClipboardContent> {
-    read_content_for_hint(content_hint(), read_text_content, read_image_content)
+pub(crate) fn read_content_typed() -> ClipboardRead<ClipboardContent> {
+    #[cfg(target_os = "windows")]
+    {
+        return read_windows_content();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    match read_content_for_hint(content_hint(), read_text_content, read_image_content) {
+        Some(content) => ClipboardRead::Content(content),
+        None => ClipboardRead::Empty,
+    }
 }
 
 fn read_content_for_hint<F, G>(
@@ -425,12 +436,332 @@ fn decode_windows_dib_image(data: &[u8]) -> Option<ClipboardImage> {
 }
 
 #[cfg(target_os = "windows")]
+fn read_windows_content() -> ClipboardRead<ClipboardContent> {
+    use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
+
+    const MAX_ATTEMPTS: usize = 3;
+    for _ in 0..MAX_ATTEMPTS {
+        let before = unsafe { GetClipboardSequenceNumber() } as u64;
+        let result = match content_hint() {
+            ClipboardContentHint::Text => read_windows_text_once().map(ClipboardContent::Text),
+            ClipboardContentHint::Image => read_image()
+                .map(ClipboardContent::Image)
+                .map_or(ClipboardRead::Busy, ClipboardRead::Content),
+            ClipboardContentHint::Unknown => ClipboardRead::Unsupported,
+        };
+        let after = unsafe { GetClipboardSequenceNumber() } as u64;
+        match resolve_stable_read([(before, after, result)], 1) {
+            ClipboardRead::Busy => std::thread::sleep(std::time::Duration::from_millis(4)),
+            stable => return stable,
+        }
+    }
+    ClipboardRead::Busy
+}
+
+#[cfg(target_os = "windows")]
+impl<T> ClipboardRead<T> {
+    fn map<U>(self, map: impl FnOnce(T) -> U) -> ClipboardRead<U> {
+        match self {
+            ClipboardRead::Content(value) => ClipboardRead::Content(map(value)),
+            ClipboardRead::Unchanged => ClipboardRead::Unchanged,
+            ClipboardRead::Empty => ClipboardRead::Empty,
+            ClipboardRead::Busy => ClipboardRead::Busy,
+            ClipboardRead::Unsupported => ClipboardRead::Unsupported,
+            ClipboardRead::Error(error) => ClipboardRead::Error(error),
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn read_windows_text_once() -> ClipboardRead<String> {
+    use windows_sys::Win32::System::{
+        DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard},
+        Memory::{GlobalLock, GlobalSize, GlobalUnlock},
+        Ole::CF_UNICODETEXT,
+    };
+
+    struct ClipboardGuard;
+    impl Drop for ClipboardGuard {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = CloseClipboard();
+            }
+        }
+    }
+
+    if unsafe { OpenClipboard(std::ptr::null_mut()) } == 0 {
+        return ClipboardRead::Busy;
+    }
+    let _guard = ClipboardGuard;
+    let handle = unsafe { GetClipboardData(u32::from(CF_UNICODETEXT)) };
+    if handle.is_null() {
+        return ClipboardRead::Unsupported;
+    }
+    let byte_len = unsafe { GlobalSize(handle) };
+    if byte_len == 0 {
+        return ClipboardRead::Empty;
+    }
+    if byte_len > CLIPBOARD_MAX_TEXT_BYTES.saturating_mul(2).saturating_add(2) {
+        return ClipboardRead::Error("clipboard text exceeds the configured byte limit".into());
+    }
+    let pointer = unsafe { GlobalLock(handle) };
+    if pointer.is_null() {
+        return ClipboardRead::Busy;
+    }
+    let units = unsafe {
+        std::slice::from_raw_parts(pointer.cast::<u16>(), byte_len / std::mem::size_of::<u16>())
+    };
+    let terminator = units
+        .iter()
+        .position(|unit| *unit == 0)
+        .unwrap_or(units.len());
+    let result = if terminator == 0 {
+        ClipboardRead::Empty
+    } else {
+        String::from_utf16(&units[..terminator])
+            .map(ClipboardRead::Content)
+            .unwrap_or_else(|error| {
+                ClipboardRead::Error(format!("invalid UTF-16 clipboard text: {error}"))
+            })
+    };
+    unsafe {
+        let _ = GlobalUnlock(handle);
+    }
+    result
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) struct WindowsClipboardListener {
+    window: isize,
+    thread_id: u32,
+    changes: std::sync::mpsc::Receiver<u64>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    last_sequence: u64,
+}
+
+#[cfg(target_os = "windows")]
+impl WindowsClipboardListener {
+    pub(crate) fn start() -> Result<Self, String> {
+        use std::sync::mpsc;
+        use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
+
+        let (change_tx, changes) = mpsc::channel();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let thread = std::thread::Builder::new()
+            .name("mykvm-clipboard-listener".into())
+            .spawn(move || windows_clipboard_message_loop(change_tx, ready_tx))
+            .map_err(|error| format!("failed to start clipboard listener thread: {error}"))?;
+        let (window, thread_id) = match ready_rx.recv_timeout(std::time::Duration::from_secs(2)) {
+            Ok(Ok(ready)) => ready,
+            Ok(Err(error)) => {
+                let _ = thread.join();
+                return Err(error);
+            }
+            Err(_) => return Err("clipboard listener did not initialize in time".into()),
+        };
+        Ok(Self {
+            window,
+            thread_id,
+            changes,
+            thread: Some(thread),
+            last_sequence: unsafe { GetClipboardSequenceNumber() } as u64,
+        })
+    }
+
+    pub(crate) fn wait_for_change(&mut self, timeout: std::time::Duration) -> ClipboardRead<u64> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            match self.changes.recv_timeout(remaining) {
+                Ok(sequence) if sequence == self.last_sequence => {
+                    if std::time::Instant::now() >= deadline {
+                        return ClipboardRead::Unchanged;
+                    }
+                }
+                Ok(sequence) => {
+                    self.last_sequence = sequence;
+                    return ClipboardRead::Content(sequence);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    return ClipboardRead::Unchanged;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return ClipboardRead::Error("clipboard listener stopped".into());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsClipboardListener {
+    fn drop(&mut self) {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            PostMessageW, PostThreadMessageW, WM_CLOSE, WM_QUIT,
+        };
+        let posted = unsafe { PostMessageW(self.window as _, WM_CLOSE, 0, 0) };
+        if posted == 0 {
+            unsafe {
+                let _ = PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0);
+            }
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsClipboardListenerContext {
+    changes: std::sync::mpsc::Sender<u64>,
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn windows_clipboard_window_proc(
+    window: windows_sys::Win32::Foundation::HWND,
+    message: u32,
+    wparam: windows_sys::Win32::Foundation::WPARAM,
+    lparam: windows_sys::Win32::Foundation::LPARAM,
+) -> windows_sys::Win32::Foundation::LRESULT {
+    use windows_sys::Win32::{
+        System::DataExchange::{GetClipboardSequenceNumber, RemoveClipboardFormatListener},
+        UI::WindowsAndMessaging::{
+            DefWindowProcW, DestroyWindow, GetWindowLongPtrW, PostQuitMessage, SetWindowLongPtrW,
+            CREATESTRUCTW, GWLP_USERDATA, WM_CLIPBOARDUPDATE, WM_CLOSE, WM_NCCREATE, WM_NCDESTROY,
+        },
+    };
+
+    if message == WM_NCCREATE {
+        let create = &*(lparam as *const CREATESTRUCTW);
+        SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as isize);
+        return 1;
+    }
+    let context = GetWindowLongPtrW(window, GWLP_USERDATA) as *mut WindowsClipboardListenerContext;
+    match message {
+        WM_CLIPBOARDUPDATE => {
+            if let Some(context) = context.as_ref() {
+                let _ = context.changes.send(GetClipboardSequenceNumber() as u64);
+            }
+            0
+        }
+        WM_CLOSE => {
+            let _ = RemoveClipboardFormatListener(window);
+            let _ = DestroyWindow(window);
+            0
+        }
+        WM_NCDESTROY => {
+            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+            if !context.is_null() {
+                drop(Box::from_raw(context));
+            }
+            PostQuitMessage(0);
+            0
+        }
+        _ => DefWindowProcW(window, message, wparam, lparam),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_clipboard_message_loop(
+    changes: std::sync::mpsc::Sender<u64>,
+    ready: std::sync::mpsc::Sender<Result<(isize, u32), String>>,
+) {
+    use windows_sys::Win32::{
+        System::{
+            DataExchange::AddClipboardFormatListener, LibraryLoader::GetModuleHandleW,
+            Threading::GetCurrentThreadId,
+        },
+        UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW, IsWindow,
+            RegisterClassW, TranslateMessage, UnregisterClassW, HWND_MESSAGE, MSG, WNDCLASSW,
+        },
+    };
+
+    let class_name = crate::wide_null(&format!(
+        "MyKVM_Local_Clipboard_Listener_{}",
+        std::process::id()
+    ));
+    let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
+    let class = WNDCLASSW {
+        lpfnWndProc: Some(windows_clipboard_window_proc),
+        hInstance: instance,
+        lpszClassName: class_name.as_ptr(),
+        ..Default::default()
+    };
+    if unsafe { RegisterClassW(&class) } == 0 {
+        let _ = ready.send(Err("failed to register clipboard listener window".into()));
+        return;
+    }
+    let context = Box::into_raw(Box::new(WindowsClipboardListenerContext { changes }));
+    let window = unsafe {
+        CreateWindowExW(
+            0,
+            class_name.as_ptr(),
+            class_name.as_ptr(),
+            0,
+            0,
+            0,
+            0,
+            0,
+            HWND_MESSAGE,
+            std::ptr::null_mut(),
+            instance,
+            context.cast(),
+        )
+    };
+    if window.is_null() {
+        unsafe {
+            drop(Box::from_raw(context));
+            let _ = UnregisterClassW(class_name.as_ptr(), instance);
+        }
+        let _ = ready.send(Err("failed to create clipboard listener window".into()));
+        return;
+    }
+    if unsafe { AddClipboardFormatListener(window) } == 0 {
+        unsafe {
+            let _ = DestroyWindow(window);
+            let _ = UnregisterClassW(class_name.as_ptr(), instance);
+        }
+        let _ = ready.send(Err("failed to subscribe to clipboard updates".into()));
+        return;
+    }
+    if ready
+        .send(Ok((window as isize, unsafe { GetCurrentThreadId() })))
+        .is_err()
+    {
+        unsafe {
+            let _ = DestroyWindow(window);
+            let _ = UnregisterClassW(class_name.as_ptr(), instance);
+        }
+        return;
+    }
+
+    let mut message = MSG::default();
+    while unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) } > 0 {
+        unsafe {
+            let _ = TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+    unsafe {
+        if IsWindow(window) != 0 {
+            let _ = windows_sys::Win32::System::DataExchange::RemoveClipboardFormatListener(window);
+            let _ = DestroyWindow(window);
+        }
+        let _ = UnregisterClassW(class_name.as_ptr(), instance);
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn read_system_text() -> Result<String, String> {
-    let mut clipboard =
-        arboard::Clipboard::new().map_err(|error| format!("failed to open clipboard: {error}"))?;
-    clipboard
-        .get_text()
-        .map_err(|error| format!("failed to read clipboard text: {error}"))
+    match read_windows_text_once() {
+        ClipboardRead::Content(text) => Ok(text),
+        ClipboardRead::Empty => Ok(String::new()),
+        ClipboardRead::Busy => Err("clipboard is busy".into()),
+        ClipboardRead::Unsupported => Err("clipboard does not contain Unicode text".into()),
+        ClipboardRead::Error(error) => Err(error),
+        ClipboardRead::Unchanged => Err("clipboard did not change".into()),
+    }
 }
 
 #[cfg(not(target_os = "windows"))]

@@ -140,6 +140,19 @@ test('T19: safe loopback is test-only and cannot reach native desktop adapters',
   assert.doesNotMatch(loopback, /NativeInjector|start_input_runtime|start_v2_controller_runtime|start_capture|CGEvent|SendInput/)
 })
 
+test('T13: Windows clipboard uses a user-session listener with symmetric cleanup', () => {
+  const clipboard = read('src-tauri/src/clipboard.rs')
+  assert.match(clipboard, /AddClipboardFormatListener\(window\)/)
+  assert.match(clipboard, /WM_CLIPBOARDUPDATE[\s\S]*?GetClipboardSequenceNumber/)
+  assert.match(clipboard, /WM_CLOSE[\s\S]*?RemoveClipboardFormatListener\(window\)[\s\S]*?DestroyWindow\(window\)/)
+  assert.match(clipboard, /WM_NCDESTROY[\s\S]*?Box::from_raw\(context\)[\s\S]*?PostQuitMessage/)
+  assert.match(clipboard, /ClipboardRead::Busy[\s\S]*?Duration::from_millis\(4\)/)
+  assert.doesNotMatch(clipboard, /OpenClipboard[\s\S]*?OpenProcess|WTSGetActiveConsoleSessionId|SYSTEM/)
+  const backend = read('src-tauri/src/lib.rs')
+  assert.match(backend, /WindowsClipboardListener::start\(\)/)
+  assert.match(backend, /windows_listener\.wait_for_change/)
+})
+
 test('A08/A28: Windows local game hooks bypass context and contain panics', () => {
   const gameMode = read('src-tauri/src/game_mode.rs')
   assert.match(gameMode, /static LOCAL_GAME_MODE: AtomicBool/)

@@ -5440,24 +5440,66 @@ fn run_clipboard_sync(
 ) {
     let mut last_sent: Option<(String, String, String)> = None;
     let mut last_failed: Option<(String, String, String, Instant)> = None;
+    #[cfg(not(target_os = "windows"))]
     let mut last_poll = Instant::now() - Duration::from_secs(1);
     let mut sequence = now_ms();
+    #[cfg(target_os = "windows")]
+    let mut windows_listener = match clipboard::WindowsClipboardListener::start() {
+        Ok(listener) => listener,
+        Err(error) => {
+            log::warn!("clipboard listener unavailable: {error}");
+            return;
+        }
+    };
 
     while !stop.load(Ordering::Relaxed) {
         let Some(target) = input::current_clipboard_target(&clipboard_target) else {
+            #[cfg(target_os = "windows")]
+            while matches!(
+                windows_listener.wait_for_change(Duration::ZERO),
+                clipboard::ClipboardRead::Content(_)
+            ) {}
             thread::sleep(Duration::from_millis(120));
-            last_poll = Instant::now() - Duration::from_secs(1);
+            #[cfg(not(target_os = "windows"))]
+            {
+                last_poll = Instant::now() - Duration::from_secs(1);
+            }
             continue;
         };
 
+        #[cfg(target_os = "windows")]
+        match windows_listener.wait_for_change(Duration::from_millis(120)) {
+            clipboard::ClipboardRead::Content(_) => {}
+            clipboard::ClipboardRead::Unchanged => continue,
+            clipboard::ClipboardRead::Error(error) => {
+                log::warn!("clipboard listener stopped: {error}");
+                return;
+            }
+            clipboard::ClipboardRead::Empty
+            | clipboard::ClipboardRead::Busy
+            | clipboard::ClipboardRead::Unsupported => continue,
+        }
+
+        #[cfg(not(target_os = "windows"))]
         if last_poll.elapsed() < Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS) {
             thread::sleep(Duration::from_millis(CLIPBOARD_IDLE_SLEEP_MS));
             continue;
         }
-        last_poll = Instant::now();
+        #[cfg(not(target_os = "windows"))]
+        {
+            last_poll = Instant::now();
+        }
 
-        let Some(content) = clipboard::read_content() else {
-            continue;
+        let content = match clipboard::read_content_typed() {
+            clipboard::ClipboardRead::Content(content) => content,
+            clipboard::ClipboardRead::Unchanged
+            | clipboard::ClipboardRead::Empty
+            | clipboard::ClipboardRead::Busy
+            | clipboard::ClipboardRead::Unsupported => continue,
+            clipboard::ClipboardRead::Error(error) => {
+                log::warn!("clipboard read failed: {error}");
+                continue;
+            }
         };
         let signature = content.signature();
 
