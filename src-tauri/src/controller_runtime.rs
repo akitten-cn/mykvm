@@ -1,8 +1,8 @@
 use crate::{
     control_ports::{CapturePort, FocusPort},
     protocol_v2::{
-        BootId, ControlFrame, ControllerHandshake, CriticalEvent, CriticalFrame, ProtocolError,
-        SessionId,
+        BootId, ControlFrame, ControllerHandshake, CriticalEvent, CriticalFrame, MotionFrame,
+        ProtocolError, SessionId,
     },
     routing::{LocalOverride, ReturnReason, RouteEffect, RouteError, RouteState, Router},
 };
@@ -28,6 +28,7 @@ pub struct ControllerRuntime {
     pending_request: Option<u64>,
     pending_session: Option<SessionId>,
     input_sequence: u64,
+    motion_sequence: u64,
 }
 
 impl ControllerRuntime {
@@ -39,6 +40,7 @@ impl ControllerRuntime {
             pending_request: None,
             pending_session: None,
             input_sequence: 0,
+            motion_sequence: 0,
         })
     }
 
@@ -141,6 +143,7 @@ impl ControllerRuntime {
                 }
                 self.pending_request = None;
                 self.input_sequence = 0;
+                self.motion_sequence = 0;
                 Ok(vec![ControllerAction::OpenInput(*session_id)])
             }
             ControlFrame::Pong { .. } => {
@@ -191,12 +194,28 @@ impl ControllerRuntime {
 
     pub fn next_input(
         &mut self,
-        event: CriticalEvent,
+        mut event: CriticalEvent,
     ) -> Result<CriticalFrame, ControllerRuntimeError> {
         let session_id = self
             .handshake
             .active_session()
             .ok_or(ControllerRuntimeError::NotActive)?;
+        match &mut event {
+            CriticalEvent::Button {
+                motion_sequence, ..
+            }
+            | CriticalEvent::Scroll {
+                motion_sequence, ..
+            } => {
+                if self.motion_sequence == 0 {
+                    return Err(ControllerRuntimeError::Protocol(
+                        ProtocolError::InvalidField("motion_sequence"),
+                    ));
+                }
+                *motion_sequence = self.motion_sequence;
+            }
+            CriticalEvent::Key { .. } => {}
+        }
         self.input_sequence =
             self.input_sequence
                 .checked_add(1)
@@ -207,6 +226,26 @@ impl ControllerRuntime {
             session_id,
             sequence: self.input_sequence,
             event,
+        })
+    }
+
+    pub fn next_motion(&mut self, x: i32, y: i32) -> Result<MotionFrame, ControllerRuntimeError> {
+        let session_id = self
+            .handshake
+            .active_session()
+            .ok_or(ControllerRuntimeError::NotActive)?;
+        self.motion_sequence =
+            self.motion_sequence
+                .checked_add(1)
+                .ok_or(ControllerRuntimeError::Protocol(
+                    ProtocolError::InvalidField("motion_sequence"),
+                ))?;
+        Ok(MotionFrame {
+            session_id,
+            sequence: self.motion_sequence,
+            required_reliable_sequence: self.input_sequence,
+            x,
+            y,
         })
     }
 
@@ -250,12 +289,16 @@ impl ControllerRuntime {
                     }
                     self.pending_request = None;
                     self.pending_session = None;
+                    self.input_sequence = 0;
+                    self.motion_sequence = 0;
                     actions.push(ControllerAction::CloseInput);
                 }
                 RouteEffect::Cancel { .. } => {
                     self.handshake.abort();
                     self.pending_request = None;
                     self.pending_session = None;
+                    self.input_sequence = 0;
+                    self.motion_sequence = 0;
                     actions.push(ControllerAction::CloseInput);
                 }
                 RouteEffect::Prepare { .. } => {}
@@ -269,6 +312,8 @@ impl ControllerRuntime {
         self.handshake.abort();
         self.pending_request = None;
         self.pending_session = None;
+        self.input_sequence = 0;
+        self.motion_sequence = 0;
     }
 
     fn end_after_failed_ack<C: CapturePort>(&mut self, capture: &mut C) -> Vec<ControllerAction> {
@@ -281,6 +326,8 @@ impl ControllerRuntime {
         self.router.go_local(ReturnReason::Emergency, capture);
         self.pending_request = None;
         self.pending_session = None;
+        self.input_sequence = 0;
+        self.motion_sequence = 0;
         actions.push(ControllerAction::CloseInput);
         actions
     }
@@ -365,6 +412,9 @@ mod tests {
             vec![ControllerAction::OpenInput(session_id)]
         );
         assert_eq!(capture.activated, 1);
+        let motion = runtime.next_motion(10, 20).unwrap();
+        assert_eq!(motion.sequence, 1);
+        assert_eq!(motion.required_reliable_sequence, 0);
         let frame = runtime
             .next_input(CriticalEvent::Button {
                 button: CriticalButton::Left,
@@ -375,6 +425,63 @@ mod tests {
             })
             .unwrap();
         assert_eq!(frame.sequence, 1);
+        assert!(matches!(
+            frame.event,
+            CriticalEvent::Button {
+                motion_sequence: 1,
+                ..
+            }
+        ));
+        let later_motion = runtime.next_motion(30, 40).unwrap();
+        assert_eq!(later_motion.sequence, 2);
+        assert_eq!(later_motion.required_reliable_sequence, 1);
+    }
+
+    #[test]
+    fn pointer_event_before_initial_motion_does_not_consume_reliable_sequence() {
+        let (mut runtime, mut capture, request) = prepared();
+        runtime
+            .handle_control(
+                &ControlFrame::Ready {
+                    request_id: request,
+                    receiver_boot: boot(2),
+                    input_ready: true,
+                },
+                1,
+                &mut capture,
+            )
+            .unwrap();
+        let mut focus = FakeFocus::default();
+        let commit = runtime.advance(2, true, &mut capture, &mut focus).unwrap();
+        let ControllerAction::SendControl(ControlFrame::Commit { session_id, .. }) = commit[0]
+        else {
+            panic!("commit")
+        };
+        runtime
+            .handle_control(&ControlFrame::CommitAck { session_id }, 3, &mut capture)
+            .unwrap();
+
+        assert!(runtime
+            .next_input(CriticalEvent::Scroll {
+                delta_x: 0,
+                delta_y: 1,
+                x: 10,
+                y: 20,
+                motion_sequence: 99,
+            })
+            .is_err());
+        assert_eq!(
+            runtime
+                .next_input(CriticalEvent::Key {
+                    key_code: 65,
+                    scan_code: 30,
+                    extended: false,
+                    down: true,
+                })
+                .unwrap()
+                .sequence,
+            1
+        );
     }
 
     #[test]

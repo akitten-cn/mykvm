@@ -1,8 +1,10 @@
 use crate::{
     control_ports::{CapturePort, FocusPort},
     controller_runtime::{ControllerAction, ControllerRuntime, ControllerRuntimeError},
-    protocol_v2::{BootId, ControlFrame, CriticalEvent, CriticalFrame},
-    quic_transport::{ControlHandle, ControlPeer, InputHandle, PeerRole, TransportHandle},
+    protocol_v2::{BootId, ControlFrame, CriticalEvent, CriticalFrame, MotionFrame},
+    quic_transport::{
+        ControlHandle, ControlPeer, InputHandle, MotionHandle, PeerRole, TransportHandle,
+    },
     routing::{LocalOverride, ReturnReason},
 };
 use std::sync::{
@@ -45,6 +47,7 @@ pub trait ControllerTransport {
     fn send_control(&mut self, frame: ControlFrame) -> Result<(), String>;
     fn open_input(&mut self) -> Result<(), String>;
     fn send_input(&mut self, frame: &CriticalFrame) -> Result<(), String>;
+    fn send_motion(&mut self, frame: &MotionFrame) -> Result<(), String>;
     fn disconnect(&mut self);
 }
 
@@ -53,6 +56,7 @@ pub struct QuicControllerTransport {
     peer: Option<ControlPeer>,
     control: Option<ControlHandle>,
     input: Option<InputHandle>,
+    motion: Option<MotionHandle>,
 }
 
 impl QuicControllerTransport {
@@ -62,6 +66,7 @@ impl QuicControllerTransport {
             peer: None,
             control: None,
             input: None,
+            motion: None,
         }
     }
 }
@@ -99,7 +104,10 @@ impl ControllerTransport for QuicControllerTransport {
             .peer
             .clone()
             .ok_or_else(|| "V2 control peer is not connected".to_string())?;
-        self.input = Some(self.transport.open_input(peer)?);
+        let input = self.transport.open_input(peer.clone())?;
+        let motion = self.transport.open_motion(peer)?;
+        self.input = Some(input);
+        self.motion = Some(motion);
         Ok(())
     }
 
@@ -110,7 +118,15 @@ impl ControllerTransport for QuicControllerTransport {
             .try_send(frame)
     }
 
+    fn send_motion(&mut self, frame: &MotionFrame) -> Result<(), String> {
+        self.motion
+            .as_ref()
+            .ok_or_else(|| "V2 motion slot is not open".to_string())?
+            .try_send(frame)
+    }
+
     fn disconnect(&mut self) {
+        self.motion = None;
         self.input = None;
         self.control = None;
         self.peer = None;
@@ -251,6 +267,23 @@ impl<T: ControllerTransport> ControllerClient<T> {
         Ok(())
     }
 
+    pub fn send_motion<C: CapturePort>(
+        &mut self,
+        x: i32,
+        y: i32,
+        capture: &mut C,
+    ) -> Result<u64, ControllerClientError> {
+        let frame = self
+            .runtime
+            .next_motion(x, y)
+            .map_err(ControllerClientError::Runtime)?;
+        if let Err(error) = self.transport.send_motion(&frame) {
+            self.fail_transport(capture);
+            return Err(ControllerClientError::Transport(error));
+        }
+        Ok(frame.sequence)
+    }
+
     pub fn go_local<C: CapturePort>(
         &mut self,
         reason: ReturnReason,
@@ -342,8 +375,11 @@ mod tests {
         inbox: Option<ControllerInbox>,
         controls: Vec<ControlFrame>,
         inputs: Vec<CriticalFrame>,
+        motions: Vec<MotionFrame>,
         input_open: bool,
+        motion_open: bool,
         fail_input: bool,
+        fail_motion: bool,
     }
 
     impl FakeControllerTransport {
@@ -369,6 +405,7 @@ mod tests {
 
         fn open_input(&mut self) -> Result<(), String> {
             self.input_open = true;
+            self.motion_open = true;
             Ok(())
         }
 
@@ -380,8 +417,17 @@ mod tests {
             Ok(())
         }
 
+        fn send_motion(&mut self, frame: &MotionFrame) -> Result<(), String> {
+            if self.fail_motion {
+                return Err("motion closed".into());
+            }
+            self.motions.push(*frame);
+            Ok(())
+        }
+
         fn disconnect(&mut self) {
             self.input_open = false;
+            self.motion_open = false;
         }
     }
 
@@ -440,6 +486,9 @@ mod tests {
             .receive(ControlFrame::CommitAck { session_id });
         client.poll(3, true, &mut capture, &mut focus).unwrap();
         assert!(client.transport.input_open);
+        assert!(client.transport.motion_open);
+        assert_eq!(client.send_motion(10, 20, &mut capture).unwrap(), 1);
+        assert_eq!(client.transport.motions[0].required_reliable_sequence, 0);
         client.poll(1_003, true, &mut capture, &mut focus).unwrap();
         assert!(matches!(
             client.transport.controls.last(),
@@ -458,6 +507,15 @@ mod tests {
             )
             .unwrap();
         assert_eq!(client.transport.inputs[0].sequence, 1);
+        assert!(matches!(
+            client.transport.inputs[0].event,
+            CriticalEvent::Button {
+                motion_sequence: 1,
+                ..
+            }
+        ));
+        assert_eq!(client.send_motion(30, 40, &mut capture).unwrap(), 2);
+        assert_eq!(client.transport.motions[1].required_reliable_sequence, 1);
     }
 
     #[test]
@@ -510,5 +568,31 @@ mod tests {
         );
         assert_eq!(client.transport.controls.len(), 2);
         assert!(client.transport.inbox.is_some());
+    }
+
+    #[test]
+    fn motion_failure_restores_local_and_disconnects() {
+        let (mut client, mut capture, request_id) = start();
+        client.transport.receive(ControlFrame::Ready {
+            request_id,
+            receiver_boot: boot(2),
+            input_ready: true,
+        });
+        let mut focus = FakeFocus::default();
+        client.poll(1, true, &mut capture, &mut focus).unwrap();
+        let ControlFrame::Commit { session_id, .. } = client.transport.controls[2] else {
+            panic!("commit")
+        };
+        client
+            .transport
+            .receive(ControlFrame::CommitAck { session_id });
+        client.poll(2, true, &mut capture, &mut focus).unwrap();
+        client.transport.fail_motion = true;
+
+        assert!(client.send_motion(10, 20, &mut capture).is_err());
+        assert!(client.local_override().is_local());
+        assert!(!client.transport.input_open);
+        assert!(!client.transport.motion_open);
+        assert_eq!(capture.restored, 1);
     }
 }
