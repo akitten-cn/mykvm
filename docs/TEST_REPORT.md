@@ -194,3 +194,11 @@ A32 覆盖中文、emoji、CRLF/LF 和长 UTF-8 的 V2 MessagePack 往返，以�
 生产接线要求出站目标存在于信任表且角色匹配；入站要求 TLS 认证 peer、方向角色和操作来源一致。真实 QUIC loopback 改用 `trusted_bulk_peer`，错误角色无法构造 endpoint。设置页提供文本阈值和手动重发，超限事件不含正文或摘要。
 
 实现 SHA `112539cd9a0e20851fc55c03df93d0b9c89ded78` 的提交后检查退出码 0：216 个 Rust 库测试、17 项隔离检查、前端 lint/build 和 Mac cargo check 通过。M03 未运行；Windows 构建 `pending_environment`；Windows/LOL 实机 `optional_not_run`。图片仍关闭在 V2 文本路径之外，资源预算由 T16 处理。
+
+## T16 图片与 bulk 资源预算
+
+A38 覆盖图片尺寸乘法、RGBA 长度、base64 编码长度、摘要、默认关闭、游戏模式暂停和认证接收写入门控。图片原始 RGBA 上限为 32 MiB，MessagePack bulk 帧上限为 48 MiB；本机超限或格式不符时发送不发生，并发出不含内容的可见提示。文本仍受独立的 1.5 MiB 后端上限约束。
+
+QUIC 通用 bulk 发送按实际载荷预留字节，接收在读取完整 stream 前预留 124 MiB；生产端编码也从同一个 128 MiB 全局预算预留工作内存。RAII 测试连续 100 次取得和释放近上限预算并回到零，真实回环继续证明 bulk 阻塞时可靠 input 可推进。停止或网络失败由既有 5 秒发送超时有界结束；本轮没有宣称在途 stream 可瞬时取消。
+
+实现 SHA `f7e5a07f1e584fcc44ec50f1f376f3a29e8ba15d` 的提交后检查退出码 0：220 个 Rust 库测试、18 项隔离检查、前端 lint/build 和 Mac cargo check 通过。Mac 应用和真实剪贴板未运行；Windows 构建为 `pending_environment`，Windows/LOL 实机为 `optional_not_run`。

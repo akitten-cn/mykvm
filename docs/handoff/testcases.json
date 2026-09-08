@@ -421,7 +421,15 @@
       "method": "超阈值、base64错、解码内存预算",
       "expected": "分配/传输有界，超限错误可见",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": [
+        "../T16-image-bulk-budget.md",
+        "clipboard::tests::a38_image_dimensions_and_encoding_are_bounded_before_decode",
+        "clipboard_sync::tests::a38_image_operation_round_trips_and_uses_the_same_echo_rule",
+        "tests::a38_v2_image_is_opt_in_and_validated_before_writer",
+        "quic_transport::tests::a27_bulk_memory_budget_counts_bytes_and_releases_reservations",
+        "scripts/fork-isolation.test.mjs A27/A38"
+      ]
     },
     {
       "id": "A39",

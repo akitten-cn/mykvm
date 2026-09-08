@@ -1056,17 +1056,29 @@
       "review_focus": [
         "并发槽位不等于字节预算；不能用几张小图证明无OOM风险"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../../src-tauri/src/protocol_v2.rs ClipboardImageOperation",
+        "../../src-tauri/src/clipboard.rs validate_image_data",
+        "../../src-tauri/src/quic_transport.rs BulkMemoryBudget",
+        "../../src-tauri/src/clipboard_sync.rs image ordering and echo rules",
+        "../../src-tauri/src/lib.rs authenticated image wiring and visible limits",
+        "../../src/App.tsx opt-in image setting",
+        "../T16-image-bulk-budget.md",
+        ".local-evidence/t16-postcommit-rust.log",
+        ".local-evidence/t16-postcommit-isolation.log",
+        ".local-evidence/t16-postcommit-build.log",
+        ".local-evidence/t16-postcommit-mac-check.log"
+      ],
       "blocked_reason": null
     },
     {

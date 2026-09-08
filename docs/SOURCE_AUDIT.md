@@ -125,3 +125,9 @@ Drop、WM_CLOSE、WM_NCDESTROY 和异常消息循环退出均有对应清理。�
 同步状态只保留当前赢家与一次待识别的远端写入，不保存无限操作历史。stream handler 在剪贴板专用锁内完成判断、假/真实 writer 和提交，避免并发旧操作覆盖新操作；该锁不进入键鼠数据路径。生产日志不插入文本或摘要。旧 V1 代码仍由 `LEGACY_LAN_DATA_ENABLED=false` 隔离，当前运行时只调用新的无时间窗实现。
 
 Mac 条件编译与前端构建通过，真实剪贴板没有读取或改写。Windows listener 和 V2 接线尚未在 Windows 标准库或原生主机编译，状态保持 `pending_environment`。
+
+## T16 图片与 bulk 预算增量核验
+
+原有通用 stream 只有数量并发限制，载荷进入发送队列和接收 `read_to_end` 前没有跨连接字节预算。现以进程级 128 MiB 原子预算覆盖 bulk 发送载荷、接收读取和文本/图片编码工作区；不足时在复制或解码前拒绝，permit 随成功、错误或超时路径自动释放。接收单项保守预留 124 MiB，因此同一时间只允许一个最大图片解码工作，并给小型文本编码留出余量；control、reliable input 和 motion 不消费 bulk 预算。
+
+图片 V2 操作复用 T15 的来源绑定、Lamport 排序和系统 revision 回声规则。协议先检查非零尺寸、`width * height * 4` 溢出与 32 MiB 原始上限，再核对预期 base64 长度和摘要；系统 writer 在 base64 解码前重复同一尺寸/长度检查。设置默认关闭图片，游戏模式也强制禁止发送和接收图片，文本同步不受影响。
