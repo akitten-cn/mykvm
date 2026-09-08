@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 const CLIPBOARD_MAX_TEXT_BYTES: usize = 256 * 1024;
 // Raw RGBA can be large (a 2560x1440 frame is ~14 MB); cap it so a stray huge
 // copy never floods the LAN transport. Images above this are skipped.
-const CLIPBOARD_MAX_IMAGE_BYTES: usize = 32 * 1024 * 1024;
+pub(crate) const CLIPBOARD_MAX_IMAGE_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,10 +119,22 @@ fn expected_base64_len(raw_bytes: usize) -> Result<usize, String> {
         .ok_or_else(|| "clipboard image encoding length overflow".to_string())
 }
 
-fn validate_image_encoding(image: &ClipboardImage) -> Result<usize, String> {
-    let raw_bytes = checked_rgba_len(image.width, image.height)?;
+pub(crate) fn max_image_encoded_bytes() -> usize {
+    expected_base64_len(CLIPBOARD_MAX_IMAGE_BYTES).unwrap_or(usize::MAX)
+}
+
+pub(crate) fn validate_image_encoding(image: &ClipboardImage) -> Result<usize, String> {
+    validate_image_data(image.width, image.height, &image.rgba_base64)
+}
+
+pub(crate) fn validate_image_data(
+    width: u32,
+    height: u32,
+    rgba_base64: &str,
+) -> Result<usize, String> {
+    let raw_bytes = checked_rgba_len(width, height)?;
     let encoded_bytes = expected_base64_len(raw_bytes)?;
-    if image.rgba_base64.len() != encoded_bytes {
+    if rgba_base64.len() != encoded_bytes {
         return Err("clipboard image encoding length does not match its dimensions".into());
     }
     Ok(raw_bytes)

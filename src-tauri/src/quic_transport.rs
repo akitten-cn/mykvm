@@ -53,7 +53,7 @@ const MAX_HEALTH_PEERS: usize = 64;
 const MAX_CONCURRENT_STREAMS: usize = 8;
 const MAX_INBOUND_STREAMS: usize = 8;
 const MAX_BULK_MEMORY_BYTES: usize = 128 * 1024 * 1024;
-const INBOUND_BULK_RESERVATION_BYTES: usize = 126 * 1024 * 1024;
+const INBOUND_BULK_RESERVATION_BYTES: usize = 124 * 1024 * 1024;
 const MAX_CONTROL_CONNECTIONS: usize = 8;
 const CONTROL_QUEUE_FRAMES: usize = 64;
 const MAX_CONTROL_FRAMES_PER_SECOND: u32 = 128;
@@ -482,6 +482,15 @@ impl TransportHandle {
 
     pub fn public_key(&self) -> &str {
         &self.public_key
+    }
+
+    pub(crate) fn with_bulk_memory_budget<T>(
+        &self,
+        bytes: usize,
+        work: impl FnOnce() -> T,
+    ) -> Result<T, String> {
+        let _reservation = self.bulk_memory.reserve(bytes)?;
+        Ok(work())
     }
 
     pub fn peer(&self, addr: String, public_key: String, protocol_version: u16) -> PeerEndpoint {
@@ -1950,6 +1959,12 @@ mod tests {
         let third = budget.reserve(80).expect("released bytes are reusable");
         drop((second, third));
         assert_eq!(budget.used.load(Ordering::Acquire), 0);
+        for _ in 0..100 {
+            let near_limit = budget.reserve(127).expect("near-limit reservation");
+            assert_eq!(budget.used.load(Ordering::Acquire), 127);
+            drop(near_limit);
+            assert_eq!(budget.used.load(Ordering::Acquire), 0);
+        }
         assert!(budget.reserve(usize::MAX).is_err());
     }
 

@@ -7097,6 +7097,7 @@ mod tests {
             paired_controllers: Vec::new(),
             trusted_peers: Vec::new(),
             clipboard_sync: false,
+            clipboard_image_sync: false,
             clipboard_text_limit_bytes: crate::default_clipboard_text_limit_bytes(),
             file_transfer_enabled: true,
             language: "cn".into(),

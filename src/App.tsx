@@ -1386,6 +1386,13 @@ function App() {
     }));
   }
 
+  function setClipboardImageSync(clipboardImageSync: boolean) {
+    updateLayout((layoutState) => ({
+      ...layoutState,
+      clipboardImageSync,
+    }));
+  }
+
   async function resendCurrentClipboard() {
     setErrorMessage(null);
     try {
@@ -2866,6 +2873,25 @@ function App() {
                         {label}
                       </button>
                     ))}
+                  </div>
+                </div>
+                <div className="settings-control-row">
+                  <span>{ui.settings.clipboardImages}</span>
+                  <div className="segmented-control">
+                    <button
+                      type="button"
+                      className={layout.clipboardImageSync ? "active" : ""}
+                      onClick={() => setClipboardImageSync(true)}
+                    >
+                      {ui.common.enabled}
+                    </button>
+                    <button
+                      type="button"
+                      className={!layout.clipboardImageSync ? "active" : ""}
+                      onClick={() => setClipboardImageSync(false)}
+                    >
+                      {ui.common.disabled}
+                    </button>
                   </div>
                 </div>
                 <div className="settings-control-row">

@@ -130,8 +130,9 @@ export const TEXT = {
       activeDevice: "当前设备",
       clipboard: "剪贴板同步",
       clipboardTextLimit: "文本上限",
+      clipboardImages: "同步图片（游戏模式暂停）",
       clipboardManualResend: "手动同步",
-      clipboardResendNow: "重新发送当前文本",
+      clipboardResendNow: "重新发送当前内容",
       fileTransfer: "文件传输 (bate)",
       fileTransferCopy:
         "将文件或文件夹拖到相邻屏幕即可跨设备传输，落在哪个设备上就送到哪台。",
@@ -376,8 +377,9 @@ export const TEXT = {
       activeDevice: "Active Device",
       clipboard: "Clipboard Sync",
       clipboardTextLimit: "Text Limit",
+      clipboardImages: "Sync Images (Paused in Game Mode)",
       clipboardManualResend: "Manual Sync",
-      clipboardResendNow: "Resend Current Text",
+      clipboardResendNow: "Resend Current Content",
       fileTransfer: "File Transfer (bate)",
       fileTransferCopy:
         "Drag files or folders onto an adjacent screen to transfer them across devices — wherever they land is where they go.",

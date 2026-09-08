@@ -1,4 +1,4 @@
-use crate::protocol_v2::{BootId, ClipboardOperationId};
+use crate::protocol_v2::{BootId, ClipboardImageOperation, ClipboardOperationId};
 
 pub(crate) use crate::protocol_v2::{clipboard_text_digest, ClipboardTextOperation};
 
@@ -21,9 +21,27 @@ impl From<&ClipboardTextOperation> for OperationOrder {
     }
 }
 
+impl From<&ClipboardImageOperation> for OperationOrder {
+    fn from(operation: &ClipboardImageOperation) -> Self {
+        Self {
+            lamport: operation.lamport,
+            origin_peer: operation.origin_peer.clone(),
+            operation_id: operation.operation_id,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum LocalClipboardDecision {
     Send(ClipboardTextOperation),
+    Echo,
+    Unchanged,
+    Oversized { bytes: usize, limit: usize },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum LocalImageDecision {
+    Send(ClipboardImageOperation),
     Echo,
     Unchanged,
     Oversized { bytes: usize, limit: usize },
@@ -111,6 +129,96 @@ impl ClipboardSyncEngine {
         self.new_local_operation(system_revision, text, digest)
     }
 
+    pub(crate) fn observe_local_image(
+        &mut self,
+        system_revision: u64,
+        width: u32,
+        height: u32,
+        rgba_base64: String,
+        encoded_limit: usize,
+    ) -> LocalImageDecision {
+        let digest = clipboard_text_digest(rgba_base64.as_bytes());
+        if self
+            .applied_remote_echo
+            .as_ref()
+            .map(|(revision, expected, _)| *revision == system_revision && *expected == digest)
+            .unwrap_or(false)
+        {
+            self.last_local_revision = system_revision;
+            self.applied_remote_echo = None;
+            return LocalImageDecision::Echo;
+        }
+        if system_revision == self.last_local_revision {
+            return LocalImageDecision::Unchanged;
+        }
+        self.last_local_revision = system_revision;
+        self.applied_remote_echo = None;
+        self.new_local_image_operation(
+            system_revision,
+            width,
+            height,
+            rgba_base64,
+            encoded_limit,
+            digest,
+        )
+    }
+
+    pub(crate) fn manual_resend_image(
+        &mut self,
+        system_revision: u64,
+        width: u32,
+        height: u32,
+        rgba_base64: String,
+        encoded_limit: usize,
+    ) -> LocalImageDecision {
+        self.applied_remote_echo = None;
+        self.last_local_revision = system_revision;
+        let digest = clipboard_text_digest(rgba_base64.as_bytes());
+        self.new_local_image_operation(
+            system_revision,
+            width,
+            height,
+            rgba_base64,
+            encoded_limit,
+            digest,
+        )
+    }
+
+    fn new_local_image_operation(
+        &mut self,
+        system_revision: u64,
+        width: u32,
+        height: u32,
+        rgba_base64: String,
+        encoded_limit: usize,
+        digest: [u8; 32],
+    ) -> LocalImageDecision {
+        if rgba_base64.len() > encoded_limit {
+            return LocalImageDecision::Oversized {
+                bytes: rgba_base64.len(),
+                limit: encoded_limit,
+            };
+        }
+        self.local_sequence = self.local_sequence.saturating_add(1);
+        self.lamport = self.lamport.saturating_add(1);
+        let operation = ClipboardImageOperation {
+            operation_id: ClipboardOperationId {
+                boot_id: self.boot_id,
+                local_sequence: self.local_sequence,
+            },
+            origin_peer: self.local_peer.clone(),
+            system_revision,
+            lamport: self.lamport,
+            digest,
+            width,
+            height,
+            rgba_base64,
+        };
+        self.current_order = Some(OperationOrder::from(&operation));
+        self.current_digest = Some(operation.digest);
+        LocalImageDecision::Send(operation)
+    }
+
     fn new_local_operation(
         &mut self,
         system_revision: u64,
@@ -164,18 +272,75 @@ impl ClipboardSyncEngine {
         }
     }
 
+    pub(crate) fn consider_remote_image(
+        &mut self,
+        operation: &ClipboardImageOperation,
+    ) -> RemoteClipboardDecision {
+        if operation.origin_peer.trim().is_empty()
+            || operation.origin_peer.len() > MAX_PEER_ID_BYTES
+            || operation.operation_id.local_sequence == 0
+            || operation.lamport == 0
+            || operation.width == 0
+            || operation.height == 0
+            || operation.rgba_base64.is_empty()
+            || operation.digest != clipboard_text_digest(operation.rgba_base64.as_bytes())
+        {
+            return RemoteClipboardDecision::RejectInvalid;
+        }
+        self.lamport = self.lamport.max(operation.lamport);
+        let incoming = OperationOrder::from(operation);
+        match self.current_order.as_ref() {
+            Some(current) if &incoming == current => RemoteClipboardDecision::IgnoreDuplicate,
+            Some(current) if &incoming < current => RemoteClipboardDecision::IgnoreStale,
+            _ => RemoteClipboardDecision::Apply,
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn commit_remote(
         &mut self,
         operation: &ClipboardTextOperation,
         applied_system_revision: u64,
     ) {
-        self.current_order = Some(OperationOrder::from(operation));
-        self.current_digest = Some(operation.digest);
-        self.applied_remote_echo = Some((
-            applied_system_revision,
-            operation.digest,
+        self.commit_remote_parts(
+            operation.lamport,
+            operation.origin_peer.clone(),
             operation.operation_id,
-        ));
+            operation.digest,
+            applied_system_revision,
+        );
+    }
+
+    #[cfg(test)]
+    pub(crate) fn commit_remote_image(
+        &mut self,
+        operation: &ClipboardImageOperation,
+        applied_system_revision: u64,
+    ) {
+        self.commit_remote_parts(
+            operation.lamport,
+            operation.origin_peer.clone(),
+            operation.operation_id,
+            operation.digest,
+            applied_system_revision,
+        );
+    }
+
+    pub(crate) fn commit_remote_parts(
+        &mut self,
+        lamport: u64,
+        origin_peer: String,
+        operation_id: ClipboardOperationId,
+        digest: [u8; 32],
+        applied_system_revision: u64,
+    ) {
+        self.current_order = Some(OperationOrder {
+            lamport,
+            origin_peer,
+            operation_id,
+        });
+        self.current_digest = Some(digest);
+        self.applied_remote_echo = Some((applied_system_revision, digest, operation_id));
     }
 
     #[cfg(test)]
@@ -288,5 +453,33 @@ mod tests {
             restarted.manual_resend_text(50, "old clipboard".into()),
             LocalClipboardDecision::Send(operation) if operation.text == "old clipboard"
         ));
+    }
+
+    #[test]
+    fn a38_image_operation_round_trips_and_uses_the_same_echo_rule() {
+        let mut sender = engine("windows", 1, 1);
+        let LocalImageDecision::Send(operation) =
+            sender.observe_local_image(2, 1, 1, "AAAAAA==".into(), 32 * 1024 * 1024)
+        else {
+            panic!("image operation")
+        };
+        let encoded = operation.encode().unwrap();
+        let crate::protocol_v2::ClipboardBulkOperation::Image(decoded) =
+            crate::protocol_v2::decode_clipboard_bulk(&encoded).unwrap()
+        else {
+            panic!("decoded image operation")
+        };
+        assert_eq!(decoded, operation);
+
+        let mut receiver = engine("mac", 2, 10);
+        assert_eq!(
+            receiver.consider_remote_image(&decoded),
+            RemoteClipboardDecision::Apply
+        );
+        receiver.commit_remote_image(&decoded, 11);
+        assert_eq!(
+            receiver.observe_local_image(11, 1, 1, decoded.rgba_base64, 32 * 1024 * 1024),
+            LocalImageDecision::Echo
+        );
     }
 }

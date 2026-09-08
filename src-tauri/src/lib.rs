@@ -255,6 +255,8 @@ struct LayoutState {
     trusted_peers: Vec<TrustedPeerRecord>,
     #[serde(default = "default_clipboard_sync")]
     clipboard_sync: bool,
+    #[serde(default)]
+    clipboard_image_sync: bool,
     #[serde(default = "default_clipboard_text_limit_bytes")]
     clipboard_text_limit_bytes: usize,
     #[serde(default = "default_file_transfer_enabled")]
@@ -1008,6 +1010,7 @@ impl AppRuntime {
                     &authenticated,
                     &current_peer.id,
                     &clipboard_sync_engine,
+                    layout.clipboard_image_sync && !layout.game_mode,
                     write_clipboard_content_with_retry,
                 ) {
                     transport_packets_for_stream.fetch_add(1, Ordering::Relaxed);
@@ -1681,6 +1684,7 @@ impl AppRuntime {
         let clipboard_sync_engine = Arc::clone(&self.clipboard_sync_engine);
         let clipboard_resend_requested = Arc::clone(&self.clipboard_resend_requested);
         let clipboard_target = Arc::clone(&self.clipboard_target);
+        let clipboard_layout = Arc::clone(&self.layout);
         let transport_packets = Arc::clone(&self.transport_packets);
         let clipboard_packets = Arc::clone(&self.clipboard_packets);
         let app_handle = self.app_handle.clone();
@@ -1701,6 +1705,7 @@ impl AppRuntime {
                 clipboard_sync_engine,
                 clipboard_resend_requested,
                 clipboard_target,
+                clipboard_layout,
                 transport_packets,
                 clipboard_packets,
                 app_handle,
@@ -1968,6 +1973,7 @@ fn runtime_relevant_layout_changed(previous: &LayoutState, next: &LayoutState) -
     previous.input_mode != next.input_mode
         || previous.machine_role != next.machine_role
         || previous.clipboard_sync != next.clipboard_sync
+        || previous.clipboard_image_sync != next.clipboard_image_sync
         || previous.clipboard_text_limit_bytes != next.clipboard_text_limit_bytes
         || previous.control_hotkeys != next.control_hotkeys
         || previous.transport_port_mode != next.transport_port_mode
@@ -4652,6 +4658,7 @@ fn detect_local_layout(app: &AppHandle) -> LayoutState {
         paired_controllers: Vec::new(),
         trusted_peers: Vec::new(),
         clipboard_sync: default_clipboard_sync(),
+        clipboard_image_sync: false,
         clipboard_text_limit_bytes: default_clipboard_text_limit_bytes(),
         file_transfer_enabled: default_file_transfer_enabled(),
         language: default_language(),
@@ -4699,6 +4706,7 @@ fn detect_fallback_layout() -> LayoutState {
         paired_controllers: Vec::new(),
         trusted_peers: Vec::new(),
         clipboard_sync: default_clipboard_sync(),
+        clipboard_image_sync: false,
         clipboard_text_limit_bytes: default_clipboard_text_limit_bytes(),
         file_transfer_enabled: default_file_transfer_enabled(),
         language: default_language(),
@@ -4930,6 +4938,7 @@ fn normalize_saved_layout(saved_layout: LayoutState, detected_layout: LayoutStat
         paired_controllers: normalize_paired_controllers(saved_layout.paired_controllers),
         trusted_peers: normalize_trusted_peers(saved_layout.trusted_peers),
         clipboard_sync: saved_layout.clipboard_sync,
+        clipboard_image_sync: saved_layout.clipboard_image_sync,
         clipboard_text_limit_bytes: normalize_clipboard_text_limit_bytes(
             saved_layout.clipboard_text_limit_bytes,
         ),
@@ -5594,6 +5603,7 @@ fn run_clipboard_sync(
     sync_engine: Arc<Mutex<Option<clipboard_sync::ClipboardSyncEngine>>>,
     resend_requested: Arc<AtomicBool>,
     clipboard_target: Arc<Mutex<Option<input::ClipboardTarget>>>,
+    layout_state: Arc<Mutex<LayoutState>>,
     transport_packets: Arc<AtomicU64>,
     clipboard_packets: Arc<AtomicU64>,
     app_handle: AppHandle,
@@ -5672,10 +5682,9 @@ fn run_clipboard_sync(
             synthetic_revision
         };
 
-        let text = match clipboard::read_content_typed() {
-            clipboard::ClipboardRead::Content(ClipboardContent::Text(text)) => text,
-            clipboard::ClipboardRead::Content(ClipboardContent::Image(_))
-            | clipboard::ClipboardRead::Unchanged
+        let content = match clipboard::read_content_typed() {
+            clipboard::ClipboardRead::Content(content) => content,
+            clipboard::ClipboardRead::Unchanged
             | clipboard::ClipboardRead::Empty
             | clipboard::ClipboardRead::Busy
             | clipboard::ClipboardRead::Unsupported => continue,
@@ -5684,35 +5693,115 @@ fn run_clipboard_sync(
                 continue;
             }
         };
-        let decision = sync_engine
-            .lock()
-            .ok()
-            .and_then(|mut engine| {
-                engine.as_mut().map(|engine| {
-                    if manual_resend {
-                        engine.manual_resend_text(system_revision, text)
-                    } else {
-                        engine.observe_local_text(system_revision, text)
+        let payload = match content {
+            ClipboardContent::Text(text) => {
+                let decision = sync_engine.lock().ok().and_then(|mut engine| {
+                    engine.as_mut().map(|engine| {
+                        if manual_resend {
+                            engine.manual_resend_text(system_revision, text)
+                        } else {
+                            engine.observe_local_text(system_revision, text)
+                        }
+                    })
+                });
+                match decision {
+                    Some(clipboard_sync::LocalClipboardDecision::Send(operation)) => {
+                        let working_bytes = operation
+                            .text
+                            .len()
+                            .checked_mul(2)
+                            .and_then(|bytes| bytes.checked_add(64 * 1024))
+                            .unwrap_or(usize::MAX);
+                        match quic_transport.with_bulk_memory_budget(working_bytes, || {
+                            operation.into_encoded()
+                        }) {
+                            Ok(encoded) => encoded,
+                            Err(error) => {
+                                log::warn!("clipboard encode budget unavailable: {error}");
+                                continue;
+                            }
+                        }
                     }
-                })
-            });
-        let Some(decision) = decision else {
-            return;
-        };
-        let operation = match decision {
-            clipboard_sync::LocalClipboardDecision::Send(operation) => operation,
-            clipboard_sync::LocalClipboardDecision::Oversized { bytes, limit } => {
-                log::warn!("clipboard text exceeds configured limit: {bytes} bytes, limit {limit}");
-                let _ = app_handle.emit(
-                    CLIPBOARD_NOTICE_EVENT,
-                    format!("Clipboard text is {bytes} bytes; the configured limit is {limit} bytes."),
-                );
-                continue;
+                    Some(clipboard_sync::LocalClipboardDecision::Oversized { bytes, limit }) => {
+                        let _ = app_handle.emit(
+                            CLIPBOARD_NOTICE_EVENT,
+                            format!("Clipboard text is {bytes} bytes; the configured limit is {limit} bytes."),
+                        );
+                        continue;
+                    }
+                    Some(clipboard_sync::LocalClipboardDecision::Echo)
+                    | Some(clipboard_sync::LocalClipboardDecision::Unchanged) => continue,
+                    None => return,
+                }
             }
-            clipboard_sync::LocalClipboardDecision::Echo
-            | clipboard_sync::LocalClipboardDecision::Unchanged => continue,
+            ClipboardContent::Image(image) => {
+                let image_allowed = layout_state
+                    .lock()
+                    .map(|layout| layout.clipboard_image_sync && !layout.game_mode)
+                    .unwrap_or(false);
+                if !image_allowed {
+                    continue;
+                }
+                if let Err(error) = clipboard::validate_image_encoding(&image) {
+                    let _ = app_handle.emit(
+                        CLIPBOARD_NOTICE_EVENT,
+                        format!("Clipboard image was not sent: {error}"),
+                    );
+                    continue;
+                }
+                let decision = sync_engine.lock().ok().and_then(|mut engine| {
+                    engine.as_mut().map(|engine| {
+                        if manual_resend {
+                            engine.manual_resend_image(
+                                system_revision,
+                                image.width,
+                                image.height,
+                                image.rgba_base64,
+                                clipboard::max_image_encoded_bytes(),
+                            )
+                        } else {
+                            engine.observe_local_image(
+                                system_revision,
+                                image.width,
+                                image.height,
+                                image.rgba_base64,
+                                clipboard::max_image_encoded_bytes(),
+                            )
+                        }
+                    })
+                });
+                match decision {
+                    Some(clipboard_sync::LocalImageDecision::Send(operation)) => {
+                        let working_bytes = operation
+                            .rgba_base64
+                            .len()
+                            .checked_mul(2)
+                            .and_then(|bytes| bytes.checked_add(1024 * 1024))
+                            .unwrap_or(usize::MAX);
+                        match quic_transport.with_bulk_memory_budget(working_bytes, || {
+                            operation.into_encoded()
+                        }) {
+                            Ok(encoded) => encoded,
+                            Err(error) => {
+                                log::warn!("clipboard image encode budget unavailable: {error}");
+                                continue;
+                            }
+                        }
+                    }
+                    Some(clipboard_sync::LocalImageDecision::Oversized { bytes, limit }) => {
+                        let _ = app_handle.emit(
+                            CLIPBOARD_NOTICE_EVENT,
+                            format!("Clipboard image is {bytes} encoded bytes; the limit is {limit} bytes."),
+                        );
+                        continue;
+                    }
+                    Some(clipboard_sync::LocalImageDecision::Echo)
+                    | Some(clipboard_sync::LocalImageDecision::Unchanged) => continue,
+                    None => return,
+                }
+            }
         };
-        let payload = match operation.encode() {
+        let payload = match payload {
             Ok(payload) => payload,
             Err(error) => {
                 log::warn!("clipboard operation encode failed: {error:?}");
@@ -5980,6 +6069,7 @@ fn handle_v2_clipboard_operation<F>(
     authenticated: &quic_transport::AuthenticatedPeer,
     local_peer_id: &str,
     sync_engine: &Arc<Mutex<Option<clipboard_sync::ClipboardSyncEngine>>>,
+    image_allowed: bool,
     mut write_content: F,
 ) -> bool
 where
@@ -5990,6 +6080,7 @@ where
         authenticated,
         local_peer_id,
         sync_engine,
+        image_allowed,
         &mut write_content,
         clipboard::system_revision,
     )
@@ -6000,6 +6091,7 @@ fn handle_v2_clipboard_operation_with_revision<F, R>(
     authenticated: &quic_transport::AuthenticatedPeer,
     local_peer_id: &str,
     sync_engine: &Arc<Mutex<Option<clipboard_sync::ClipboardSyncEngine>>>,
+    image_allowed: bool,
     mut write_content: F,
     revision_after_write: R,
 ) -> bool
@@ -6007,10 +6099,14 @@ where
     F: FnMut(&ClipboardContent) -> Result<(), String>,
     R: FnOnce() -> u64,
 {
-    let Ok(operation) = clipboard_sync::ClipboardTextOperation::decode(payload) else {
+    let Ok(operation) = protocol_v2::decode_clipboard_bulk(payload) else {
         return false;
     };
-    if operation.origin_peer != authenticated.peer_id || operation.origin_peer == local_peer_id {
+    let origin_peer = match &operation {
+        protocol_v2::ClipboardBulkOperation::Text(operation) => &operation.origin_peer,
+        protocol_v2::ClipboardBulkOperation::Image(operation) => &operation.origin_peer,
+    };
+    if origin_peer != &authenticated.peer_id || origin_peer == local_peer_id {
         return false;
     }
     // Stream handlers can run concurrently. Keep the clipboard engine lock
@@ -6023,19 +6119,67 @@ where
     let Some(engine) = shared_engine.as_mut() else {
         return false;
     };
-    let decision = engine.consider_remote(&operation);
+    let decision = match &operation {
+        protocol_v2::ClipboardBulkOperation::Text(operation) => engine.consider_remote(operation),
+        protocol_v2::ClipboardBulkOperation::Image(operation) => {
+            if !image_allowed
+                || clipboard::validate_image_data(
+                    operation.width,
+                    operation.height,
+                    &operation.rgba_base64,
+                )
+                .is_err()
+            {
+                return false;
+            }
+            engine.consider_remote_image(operation)
+        }
+    };
     match decision {
         clipboard_sync::RemoteClipboardDecision::IgnoreDuplicate
         | clipboard_sync::RemoteClipboardDecision::IgnoreStale => return true,
         clipboard_sync::RemoteClipboardDecision::RejectInvalid => return false,
         clipboard_sync::RemoteClipboardDecision::Apply => {}
     }
-    if let Err(error) = write_content(&ClipboardContent::Text(operation.text.clone())) {
+    let commit_metadata = match &operation {
+        protocol_v2::ClipboardBulkOperation::Text(operation) => (
+            operation.lamport,
+            operation.origin_peer.clone(),
+            operation.operation_id,
+            operation.digest,
+        ),
+        protocol_v2::ClipboardBulkOperation::Image(operation) => (
+            operation.lamport,
+            operation.origin_peer.clone(),
+            operation.operation_id,
+            operation.digest,
+        ),
+    };
+    let content = match operation {
+        protocol_v2::ClipboardBulkOperation::Text(operation) => {
+            ClipboardContent::Text(operation.text)
+        }
+        protocol_v2::ClipboardBulkOperation::Image(operation) => {
+            ClipboardContent::Image(ClipboardImage {
+                width: operation.width,
+                height: operation.height,
+                rgba_base64: operation.rgba_base64,
+            })
+        }
+    };
+    if let Err(error) = write_content(&content) {
         log::warn!("clipboard receive write failed: {error}");
         return false;
     }
     let applied_revision = revision_after_write();
-    engine.commit_remote(&operation, applied_revision);
+    let (lamport, origin_peer, operation_id, digest) = commit_metadata;
+    engine.commit_remote_parts(
+        lamport,
+        origin_peer,
+        operation_id,
+        digest,
+        applied_revision,
+    );
     true
 }
 
@@ -8332,6 +8476,7 @@ mod tests {
             paired_controllers: Vec::new(),
             trusted_peers: Vec::new(),
             clipboard_sync: false,
+            clipboard_image_sync: false,
             clipboard_text_limit_bytes: default_clipboard_text_limit_bytes(),
             file_transfer_enabled: true,
             language: "cn".into(),
@@ -9375,6 +9520,7 @@ mod tests {
             &authenticated,
             "mac-receiver",
             &engine,
+            false,
             |content| {
                 writes.push(content.signature());
                 Ok(())
@@ -9392,6 +9538,7 @@ mod tests {
             &authenticated,
             "mac-receiver",
             &engine,
+            false,
             |content| {
                 writes.push(content.signature());
                 Ok(())
@@ -9446,6 +9593,7 @@ mod tests {
             &authenticated,
             "mac-receiver",
             &engine,
+            false,
             |_| Err("clipboard busy".into()),
             || 21,
         ));
@@ -9458,6 +9606,71 @@ mod tests {
                 .consider_remote(&operation),
             clipboard_sync::RemoteClipboardDecision::Apply
         );
+    }
+
+    #[test]
+    fn a38_v2_image_is_opt_in_and_validated_before_writer() {
+        let mut sender = clipboard_sync::ClipboardSyncEngine::new(
+            "windows-controller".into(),
+            protocol_v2::BootId([1; 16]),
+            1,
+            CLIPBOARD_TEXT_LIMIT_DEFAULT_BYTES,
+        )
+        .unwrap();
+        let clipboard_sync::LocalImageDecision::Send(operation) = sender.observe_local_image(
+            2,
+            1,
+            1,
+            "AAAAAA==".into(),
+            clipboard::max_image_encoded_bytes(),
+        ) else {
+            panic!("image operation")
+        };
+        let payload = operation.encode().unwrap();
+        let engine = Arc::new(Mutex::new(Some(
+            clipboard_sync::ClipboardSyncEngine::new(
+                "mac-receiver".into(),
+                protocol_v2::BootId([2; 16]),
+                10,
+                CLIPBOARD_TEXT_LIMIT_DEFAULT_BYTES,
+            )
+            .unwrap(),
+        )));
+        let authenticated = quic_transport::AuthenticatedPeer {
+            peer_id: "windows-controller".into(),
+            role: quic_transport::PeerRole::Controller,
+            trust_revision: 1,
+            connection_generation: 1,
+            remote_addr: "127.0.0.1:47834".parse().unwrap(),
+        };
+        let mut writes = 0;
+        assert!(!handle_v2_clipboard_operation_with_revision(
+            &payload,
+            &authenticated,
+            "mac-receiver",
+            &engine,
+            false,
+            |_| {
+                writes += 1;
+                Ok(())
+            },
+            || 11,
+        ));
+        assert_eq!(writes, 0);
+        assert!(handle_v2_clipboard_operation_with_revision(
+            &payload,
+            &authenticated,
+            "mac-receiver",
+            &engine,
+            true,
+            |content| {
+                assert!(matches!(content, ClipboardContent::Image(_)));
+                writes += 1;
+                Ok(())
+            },
+            || 11,
+        ));
+        assert_eq!(writes, 1);
     }
 
     #[test]

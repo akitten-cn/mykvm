@@ -173,12 +173,27 @@ test('A32-A36: V2 clipboard is authenticated, versioned, bounded, and user-contr
   const transport = read('src-tauri/src/quic_transport.rs')
   assert.match(transport, /fn trusted_bulk_peer[\s\S]*?trust_store[\s\S]*?control_peer/)
   const backend = read('src-tauri/src/lib.rs')
-  assert.match(backend, /operation\.origin_peer != authenticated\.peer_id/)
+  assert.match(backend, /origin_peer != &authenticated\.peer_id/)
   assert.match(backend, /trusted_bulk_peer\(/)
   assert.match(backend, /manual_resend_text/)
   const ui = read('src/App.tsx')
   assert.match(ui, /clipboardTextLimitBytes/)
   assert.match(ui, /resendCurrentClipboard/)
+})
+
+test('A27/A38: image clipboard is opt-in and bulk memory is bounded before decode', () => {
+  assert.match(read('src/defaultLayout.ts'), /clipboardImageSync: false/)
+  const backend = read('src-tauri/src/lib.rs')
+  assert.match(backend, /clipboard_image_sync && !layout\.game_mode/)
+  assert.match(backend, /validate_image_(encoding|data)/)
+  const clipboard = read('src-tauri/src/clipboard.rs')
+  const writeImage = clipboard.match(/fn write_image\([\s\S]*?\n\}/)?.[0]
+  assert.ok(writeImage, 'image writer is present')
+  assert.ok(writeImage.indexOf('validate_image_encoding') < writeImage.indexOf('.decode('))
+  assert.match(clipboard, /checked_mul\(height\)[\s\S]*?checked_mul\(4\)/)
+  const transport = read('src-tauri/src/quic_transport.rs')
+  assert.match(transport, /MAX_BULK_MEMORY_BYTES: usize = 128 \* 1024 \* 1024/)
+  assert.match(transport, /bulk_memory\.reserve\(INBOUND_BULK_RESERVATION_BYTES\)[\s\S]*?read_to_end/)
 })
 
 test('A08/A28: Windows local game hooks bypass context and contain panics', () => {

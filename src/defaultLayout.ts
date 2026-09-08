@@ -22,6 +22,7 @@ export const defaultLayout: LayoutState = {
   pairSecret: 'browser-secret',
   pairedControllers: [],
   clipboardSync: false,
+  clipboardImageSync: false,
   clipboardTextLimitBytes: 1024 * 1024,
   fileTransferEnabled: true,
   language: 'cn',

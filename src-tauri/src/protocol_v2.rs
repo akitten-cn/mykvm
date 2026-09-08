@@ -8,7 +8,7 @@ pub const PROTOCOL_MAJOR: u16 = 2;
 pub const MAX_CONTROL_FRAME_BYTES: usize = 16 * 1024;
 pub const MAX_CRITICAL_FRAME_BYTES: usize = 4 * 1024;
 pub const MAX_MOTION_FRAME_BYTES: usize = 1024;
-pub const MAX_BULK_FRAME_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_BULK_FRAME_BYTES: usize = 48 * 1024 * 1024;
 const MAGIC: u32 = u32::from_be_bytes(*b"MKV2");
 const INPUT_MAGIC: u32 = u32::from_be_bytes(*b"MKI2");
 const MOTION_MAGIC: u32 = u32::from_be_bytes(*b"MKM2");
@@ -17,6 +17,7 @@ const MAX_PEER_ID_BYTES: usize = 256;
 const MAX_CAPABILITIES: usize = 32;
 const MAX_CAPABILITY_BYTES: usize = 64;
 const MAX_DETAIL_BYTES: usize = 512;
+const MAX_CLIPBOARD_IMAGE_RGBA_BYTES: usize = 32 * 1024 * 1024;
 const REQUIRED_CAPABILITIES: [&str; 2] = ["control_v2", "input_v2"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +44,25 @@ pub struct ClipboardTextOperation {
     pub lamport: u64,
     pub digest: [u8; 32],
     pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClipboardImageOperation {
+    pub operation_id: ClipboardOperationId,
+    pub origin_peer: String,
+    pub system_revision: u64,
+    pub lamport: u64,
+    pub digest: [u8; 32],
+    pub width: u32,
+    pub height: u32,
+    pub rgba_base64: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ClipboardBulkOperation {
+    Text(ClipboardTextOperation),
+    Image(ClipboardImageOperation),
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -207,7 +227,7 @@ struct MotionEnvelope {
 struct BulkEnvelope {
     magic: u32,
     major: u16,
-    operation: ClipboardTextOperation,
+    operation: ClipboardBulkOperation,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -286,36 +306,66 @@ pub fn clipboard_text_digest(bytes: &[u8]) -> [u8; 32] {
 impl ClipboardTextOperation {
     pub fn encode(&self) -> Result<Vec<u8>, ProtocolError> {
         validate_clipboard_text_operation(self)?;
-        let payload = rmp_serde::to_vec_named(&BulkEnvelope {
-            magic: BULK_MAGIC,
-            major: PROTOCOL_MAJOR,
-            operation: self.clone(),
-        })
-        .map_err(|_| ProtocolError::Decode)?;
-        if payload.is_empty() || payload.len() > MAX_BULK_FRAME_BYTES {
-            return Err(ProtocolError::FrameTooLarge(payload.len()));
-        }
-        Ok(payload)
+        encode_clipboard_bulk(ClipboardBulkOperation::Text(self.clone()))
     }
 
     pub fn decode(payload: &[u8]) -> Result<Self, ProtocolError> {
-        if payload.is_empty() {
-            return Err(ProtocolError::InvalidLength);
+        match decode_clipboard_bulk(payload)? {
+            ClipboardBulkOperation::Text(operation) => Ok(operation),
+            ClipboardBulkOperation::Image(_) => Err(ProtocolError::InvalidField("bulk_kind")),
         }
-        if payload.len() > MAX_BULK_FRAME_BYTES {
-            return Err(ProtocolError::FrameTooLarge(payload.len()));
-        }
-        let envelope: BulkEnvelope =
-            rmp_serde::from_slice(payload).map_err(|_| ProtocolError::Decode)?;
-        if envelope.magic != BULK_MAGIC {
-            return Err(ProtocolError::InvalidMagic);
-        }
-        if envelope.major != PROTOCOL_MAJOR {
-            return Err(ProtocolError::UnsupportedMajor(envelope.major));
-        }
-        validate_clipboard_text_operation(&envelope.operation)?;
-        Ok(envelope.operation)
     }
+
+    pub fn into_encoded(self) -> Result<Vec<u8>, ProtocolError> {
+        validate_clipboard_text_operation(&self)?;
+        encode_clipboard_bulk(ClipboardBulkOperation::Text(self))
+    }
+}
+
+impl ClipboardImageOperation {
+    pub fn encode(&self) -> Result<Vec<u8>, ProtocolError> {
+        validate_clipboard_image_operation(self)?;
+        encode_clipboard_bulk(ClipboardBulkOperation::Image(self.clone()))
+    }
+    pub fn into_encoded(self) -> Result<Vec<u8>, ProtocolError> {
+        validate_clipboard_image_operation(&self)?;
+        encode_clipboard_bulk(ClipboardBulkOperation::Image(self))
+    }
+}
+
+pub fn decode_clipboard_bulk(payload: &[u8]) -> Result<ClipboardBulkOperation, ProtocolError> {
+    if payload.is_empty() {
+        return Err(ProtocolError::InvalidLength);
+    }
+    if payload.len() > MAX_BULK_FRAME_BYTES {
+        return Err(ProtocolError::FrameTooLarge(payload.len()));
+    }
+    let envelope: BulkEnvelope =
+        rmp_serde::from_slice(payload).map_err(|_| ProtocolError::Decode)?;
+    if envelope.magic != BULK_MAGIC {
+        return Err(ProtocolError::InvalidMagic);
+    }
+    if envelope.major != PROTOCOL_MAJOR {
+        return Err(ProtocolError::UnsupportedMajor(envelope.major));
+    }
+    match &envelope.operation {
+        ClipboardBulkOperation::Text(operation) => validate_clipboard_text_operation(operation)?,
+        ClipboardBulkOperation::Image(operation) => validate_clipboard_image_operation(operation)?,
+    }
+    Ok(envelope.operation)
+}
+
+fn encode_clipboard_bulk(operation: ClipboardBulkOperation) -> Result<Vec<u8>, ProtocolError> {
+    let payload = rmp_serde::to_vec_named(&BulkEnvelope {
+        magic: BULK_MAGIC,
+        major: PROTOCOL_MAJOR,
+        operation,
+    })
+    .map_err(|_| ProtocolError::Decode)?;
+    if payload.is_empty() || payload.len() > MAX_BULK_FRAME_BYTES {
+        return Err(ProtocolError::FrameTooLarge(payload.len()));
+    }
+    Ok(payload)
 }
 
 fn validate_clipboard_text_operation(
@@ -332,6 +382,43 @@ fn validate_clipboard_text_operation(
         return Err(ProtocolError::InvalidField("text"));
     }
     if operation.digest != clipboard_text_digest(operation.text.as_bytes()) {
+        return Err(ProtocolError::InvalidField("digest"));
+    }
+    Ok(())
+}
+
+fn validate_clipboard_image_operation(
+    operation: &ClipboardImageOperation,
+) -> Result<(), ProtocolError> {
+    validate_text(&operation.origin_peer, MAX_PEER_ID_BYTES, "origin_peer")?;
+    if operation.operation_id.local_sequence == 0 {
+        return Err(ProtocolError::InvalidField("local_sequence"));
+    }
+    if operation.lamport == 0 {
+        return Err(ProtocolError::InvalidField("lamport"));
+    }
+    if operation.width == 0 || operation.height == 0 || operation.rgba_base64.is_empty() {
+        return Err(ProtocolError::InvalidField("image"));
+    }
+    let raw_bytes = usize::try_from(operation.width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(operation.height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(4))
+        .filter(|bytes| *bytes <= MAX_CLIPBOARD_IMAGE_RGBA_BYTES)
+        .ok_or(ProtocolError::InvalidField("image_dimensions"))?;
+    let expected_encoded = raw_bytes
+        .checked_add(2)
+        .and_then(|value| value.checked_div(3))
+        .and_then(|groups| groups.checked_mul(4))
+        .ok_or(ProtocolError::InvalidField("image_dimensions"))?;
+    if operation.rgba_base64.len() != expected_encoded {
+        return Err(ProtocolError::InvalidField("image_encoding_length"));
+    }
+    if operation.digest != clipboard_text_digest(operation.rgba_base64.as_bytes()) {
         return Err(ProtocolError::InvalidField("digest"));
     }
     Ok(())

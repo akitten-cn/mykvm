@@ -80,6 +80,7 @@ export interface LayoutState {
   pairSecret: string
   pairedControllers: PairedController[]
   clipboardSync: boolean
+  clipboardImageSync: boolean
   clipboardTextLimitBytes: number
   fileTransferEnabled: boolean
   language: AppLanguage
