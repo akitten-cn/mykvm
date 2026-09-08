@@ -4,7 +4,7 @@ use std::{
     net::{SocketAddr, ToSocketAddrs},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         mpsc, Arc, Mutex, RwLock,
     },
     thread,
@@ -28,7 +28,9 @@ use quinn::{
 };
 use tokio::sync::mpsc as tokio_mpsc;
 
-use crate::protocol_v2::{self, ControlDecoder, ControlFrame, CriticalDecoder, CriticalFrame};
+use crate::protocol_v2::{
+    self, ControlDecoder, ControlFrame, CriticalDecoder, CriticalFrame, MotionFrame,
+};
 
 pub const PROTOCOL_VERSION: u16 = 1;
 
@@ -233,6 +235,63 @@ impl Drop for QueuedInput {
 pub struct InputHandle {
     outgoing: tokio_mpsc::Sender<QueuedInput>,
     budget: Arc<AtomicUsize>,
+}
+
+struct MotionSlot {
+    latest: Mutex<Option<Vec<u8>>>,
+    scheduled: AtomicBool,
+    closed: AtomicBool,
+    peer: PeerEndpoint,
+    commands: tokio_mpsc::UnboundedSender<TransportCommand>,
+}
+
+pub struct MotionHandle {
+    slot: Arc<MotionSlot>,
+}
+
+impl MotionHandle {
+    pub fn try_send(&self, frame: &MotionFrame) -> Result<(), String> {
+        if self.slot.closed.load(Ordering::Acquire) {
+            return Err("motion handle is closed".into());
+        }
+        let payload = protocol_v2::encode_motion(frame)
+            .map_err(|error| format!("invalid motion frame: {error:?}"))?;
+        *self
+            .slot
+            .latest
+            .lock()
+            .map_err(|_| "motion slot lock poisoned".to_string())? = Some(payload);
+        schedule_motion(&self.slot)
+    }
+}
+
+impl Drop for MotionHandle {
+    fn drop(&mut self) {
+        self.slot.closed.store(true, Ordering::Release);
+        if let Ok(mut latest) = self.slot.latest.lock() {
+            *latest = None;
+        }
+    }
+}
+
+fn schedule_motion(slot: &Arc<MotionSlot>) -> Result<(), String> {
+    if slot.closed.load(Ordering::Acquire) {
+        return Err("motion handle is closed".into());
+    }
+    if slot.scheduled.swap(true, Ordering::AcqRel) {
+        return Ok(());
+    }
+    if slot
+        .commands
+        .send(TransportCommand::FlushMotion {
+            slot: Arc::clone(slot),
+        })
+        .is_err()
+    {
+        slot.scheduled.store(false, Ordering::Release);
+        return Err("QUIC transport is stopped".into());
+    }
+    Ok(())
 }
 
 impl InputHandle {
@@ -479,6 +538,21 @@ impl TransportHandle {
             .map_err(|_| "QUIC transport is stopped".to_string())?;
         Ok(InputHandle { outgoing, budget })
     }
+
+    pub fn open_motion(&self, peer: ControlPeer) -> Result<MotionHandle, String> {
+        if peer.role != PeerRole::Receiver {
+            return Err("motion target must be a trusted receiver".into());
+        }
+        Ok(MotionHandle {
+            slot: Arc::new(MotionSlot {
+                latest: Mutex::new(None),
+                scheduled: AtomicBool::new(false),
+                closed: AtomicBool::new(false),
+                peer: peer.endpoint,
+                commands: self.commands.clone(),
+            }),
+        })
+    }
 }
 
 enum TransportCommand {
@@ -500,6 +574,9 @@ enum TransportCommand {
     OpenInput {
         peer: ControlPeer,
         outgoing: tokio_mpsc::Receiver<QueuedInput>,
+    },
+    FlushMotion {
+        slot: Arc<MotionSlot>,
     },
     Shutdown,
 }
@@ -737,6 +814,9 @@ async fn run_transport(
                     }
                     drop(permit);
                 });
+            }
+            TransportCommand::FlushMotion { slot } => {
+                flush_motion_nonblocking(&endpoint, &identity, &connections, &health, slot);
             }
             TransportCommand::Shutdown => break,
         }
@@ -1377,6 +1457,40 @@ fn enforce_control_rate(
 /// dead connection drops this payload and kicks off a background connect —
 /// input datagrams are latest-wins, the next move follows within ~8ms, and
 /// `warm_quic_peer` keeps connections pre-established outside crossings.
+fn flush_motion_nonblocking(
+    endpoint: &Endpoint,
+    identity: &TransportIdentity,
+    connections: &ConnectionMap,
+    health: &HealthMap,
+    slot: Arc<MotionSlot>,
+) {
+    if slot.closed.load(Ordering::Acquire) {
+        slot.scheduled.store(false, Ordering::Release);
+        return;
+    }
+    let payload = slot.latest.lock().ok().and_then(|mut latest| latest.take());
+    if let Some(payload) = payload.filter(|_| !slot.closed.load(Ordering::Acquire)) {
+        send_datagram_nonblocking(
+            endpoint,
+            identity,
+            connections,
+            health,
+            slot.peer.clone(),
+            payload,
+        );
+    }
+
+    slot.scheduled.store(false, Ordering::Release);
+    let has_newer = slot
+        .latest
+        .lock()
+        .map(|latest| latest.is_some())
+        .unwrap_or(false);
+    if has_newer && !slot.closed.load(Ordering::Acquire) {
+        let _ = schedule_motion(&slot);
+    }
+}
+
 fn send_datagram_nonblocking(
     endpoint: &Endpoint,
     identity: &TransportIdentity,
@@ -2323,5 +2437,64 @@ mod tests {
         assert_eq!(budget.load(Ordering::Acquire), 0);
         assert!(reserve_input_bytes(&budget, INPUT_QUEUE_BYTES).is_ok());
         assert!(reserve_input_bytes(&budget, 1).is_err());
+    }
+
+    #[test]
+    fn motion_slot_keeps_only_the_latest_frame_and_one_flush_command() {
+        let (commands, mut receiver) = tokio_mpsc::unbounded_channel();
+        let slot = Arc::new(MotionSlot {
+            latest: Mutex::new(None),
+            scheduled: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
+            peer: PeerEndpoint {
+                addr: "127.0.0.1:47834".into(),
+                public_key: "pinned-cert".into(),
+                protocol_version: PROTOCOL_VERSION,
+            },
+            commands,
+        });
+        let handle = MotionHandle {
+            slot: Arc::clone(&slot),
+        };
+        let session_id = protocol_v2::SessionId {
+            controller_boot: protocol_v2::BootId([1; 16]),
+            receiver_boot: protocol_v2::BootId([2; 16]),
+            nonce: [3; 16],
+        };
+
+        for sequence in 1..=100 {
+            handle
+                .try_send(&MotionFrame {
+                    session_id,
+                    sequence,
+                    required_reliable_sequence: 7,
+                    x: sequence as i32,
+                    y: -(sequence as i32),
+                })
+                .unwrap();
+        }
+
+        let queued_slot = match receiver.try_recv().unwrap() {
+            TransportCommand::FlushMotion { slot } => slot,
+            _ => panic!("motion slot must queue a flush command"),
+        };
+        assert!(receiver.try_recv().is_err(), "only one flush may be queued");
+        assert!(Arc::ptr_eq(&slot, &queued_slot));
+        let latest = slot.latest.lock().unwrap().clone().unwrap();
+        assert_eq!(
+            protocol_v2::decode_motion(&latest).unwrap(),
+            MotionFrame {
+                session_id,
+                sequence: 100,
+                required_reliable_sequence: 7,
+                x: 100,
+                y: -100,
+            }
+        );
+
+        drop(handle);
+        assert!(slot.closed.load(Ordering::Acquire));
+        assert!(slot.latest.lock().unwrap().is_none());
+        assert!(schedule_motion(&slot).is_err());
     }
 }
