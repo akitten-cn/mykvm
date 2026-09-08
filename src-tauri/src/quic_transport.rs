@@ -52,6 +52,8 @@ const MAX_HEALTH_PEERS: usize = 64;
 // in-flight count so a burst cannot spawn unbounded copies of a 48MB write.
 const MAX_CONCURRENT_STREAMS: usize = 8;
 const MAX_INBOUND_STREAMS: usize = 8;
+const MAX_BULK_MEMORY_BYTES: usize = 128 * 1024 * 1024;
+const INBOUND_BULK_RESERVATION_BYTES: usize = 126 * 1024 * 1024;
 const MAX_CONTROL_CONNECTIONS: usize = 8;
 const CONTROL_QUEUE_FRAMES: usize = 64;
 const MAX_CONTROL_FRAMES_PER_SECOND: u32 = 128;
@@ -71,6 +73,58 @@ type OutboundControlHandler =
     Arc<dyn Fn(ControlFrame) -> Option<ControlFrame> + Send + Sync + 'static>;
 type InputHandler = Arc<dyn Fn(CriticalFrame, AuthenticatedPeer) -> bool + Send + Sync + 'static>;
 type InputClosedHandler = Arc<dyn Fn(AuthenticatedPeer, String) + Send + Sync + 'static>;
+
+struct BulkMemoryBudget {
+    used: AtomicUsize,
+    limit: usize,
+}
+
+impl BulkMemoryBudget {
+    fn new(limit: usize) -> Arc<Self> {
+        Arc::new(Self {
+            used: AtomicUsize::new(0),
+            limit,
+        })
+    }
+
+    fn reserve(self: &Arc<Self>, bytes: usize) -> Result<BulkMemoryReservation, String> {
+        let mut used = self.used.load(Ordering::Acquire);
+        loop {
+            let Some(next) = used.checked_add(bytes) else {
+                return Err("bulk memory budget overflow".into());
+            };
+            if next > self.limit {
+                return Err(format!(
+                    "bulk memory budget exceeded: {next} bytes requested, {} bytes available",
+                    self.limit.saturating_sub(used)
+                ));
+            }
+            match self
+                .used
+                .compare_exchange_weak(used, next, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => {
+                    return Ok(BulkMemoryReservation {
+                        budget: Arc::clone(self),
+                        bytes,
+                    })
+                }
+                Err(current) => used = current,
+            }
+        }
+    }
+}
+
+struct BulkMemoryReservation {
+    budget: Arc<BulkMemoryBudget>,
+    bytes: usize,
+}
+
+impl Drop for BulkMemoryReservation {
+    fn drop(&mut self) {
+        self.budget.used.fetch_sub(self.bytes, Ordering::AcqRel);
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PeerRole {
@@ -418,6 +472,7 @@ pub struct TransportHandle {
     public_key: String,
     peer_health: HealthMap,
     trust_store: TrustedPeerRegistry,
+    bulk_memory: Arc<BulkMemoryBudget>,
 }
 
 impl TransportHandle {
@@ -475,6 +530,7 @@ impl TransportHandle {
                 peer.addr
             ));
         }
+        let reservation = self.bulk_memory.reserve(payload.len())?;
 
         let (result_tx, result_rx) = mpsc::channel();
         self.commands
@@ -482,6 +538,7 @@ impl TransportHandle {
                 peer,
                 payload,
                 result: result_tx,
+                _reservation: reservation,
             })
             .map_err(|_| "QUIC transport is stopped".to_string())?;
         result_rx
@@ -577,6 +634,7 @@ enum TransportCommand {
         peer: PeerEndpoint,
         payload: Vec<u8>,
         result: mpsc::Sender<Result<(), String>>,
+        _reservation: BulkMemoryReservation,
     },
     OpenControl {
         peer: ControlPeer,
@@ -618,6 +676,8 @@ pub fn start(
     let (ready_tx, ready_rx) = mpsc::channel();
     let (command_tx, command_rx) = tokio_mpsc::unbounded_channel();
     let peer_health: HealthMap = Arc::new(Mutex::new(HashMap::new()));
+    let bulk_memory = BulkMemoryBudget::new(MAX_BULK_MEMORY_BYTES);
+    let loop_bulk_memory = Arc::clone(&bulk_memory);
     let loop_health = Arc::clone(&peer_health);
     let loop_trust_store = trust_store.clone();
 
@@ -648,6 +708,7 @@ pub fn start(
                 on_input,
                 on_input_closed,
                 loop_health,
+                loop_bulk_memory,
                 ready_tx,
             ));
         })
@@ -663,6 +724,7 @@ pub fn start(
         public_key: ready.public_key,
         peer_health,
         trust_store,
+        bulk_memory,
     })
 }
 
@@ -691,6 +753,7 @@ async fn run_transport(
     on_input: InputHandler,
     on_input_closed: InputClosedHandler,
     health: HealthMap,
+    bulk_memory: Arc<BulkMemoryBudget>,
     ready_tx: mpsc::Sender<Result<ReadyTransport, String>>,
 ) {
     let (endpoint, public_key) = match bind_endpoint(preferred_port, &identity) {
@@ -718,6 +781,7 @@ async fn run_transport(
         on_control,
         on_input,
         on_input_closed,
+        Arc::clone(&bulk_memory),
     );
 
     // The command loop must never await network progress: one dead peer's 2s
@@ -745,6 +809,7 @@ async fn run_transport(
                 peer,
                 payload,
                 result,
+                _reservation,
             } => {
                 let Ok(permit) = Arc::clone(&stream_slots).try_acquire_owned() else {
                     let _ = result.send(Err(format!(
@@ -757,6 +822,7 @@ async fn run_transport(
                 let health = Arc::clone(&health);
                 let identity = identity.clone();
                 tokio::spawn(async move {
+                    let _reservation = _reservation;
                     let outcome = send_stream_task(
                         &endpoint,
                         &identity,
@@ -1179,6 +1245,7 @@ fn spawn_accept_loop(
     on_control: ControlHandler,
     on_input: InputHandler,
     on_input_closed: InputClosedHandler,
+    bulk_memory: Arc<BulkMemoryBudget>,
 ) {
     let generations = Arc::new(AtomicU64::new(1));
     let inbound_stream_slots = Arc::new(tokio::sync::Semaphore::new(MAX_INBOUND_STREAMS));
@@ -1192,6 +1259,7 @@ fn spawn_accept_loop(
             let on_input_closed = Arc::clone(&on_input_closed);
             let trust_store = trust_store.clone();
             let inbound_stream_slots = Arc::clone(&inbound_stream_slots);
+            let bulk_memory = Arc::clone(&bulk_memory);
             let generation = generations.fetch_add(1, Ordering::Relaxed);
 
             tokio::spawn(async move {
@@ -1213,6 +1281,7 @@ fn spawn_accept_loop(
                             on_input,
                             on_input_closed,
                             inbound_stream_slots,
+                            bulk_memory,
                         );
                     }
                     Err(error) => {
@@ -1274,6 +1343,7 @@ fn spawn_stream_reader(
     on_input: InputHandler,
     on_input_closed: InputClosedHandler,
     inbound_stream_slots: Arc<tokio::sync::Semaphore>,
+    bulk_memory: Arc<BulkMemoryBudget>,
 ) {
     let control_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let input_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1295,6 +1365,7 @@ fn spawn_stream_reader(
                     let connection = connection.clone();
                     let control_active = Arc::clone(&control_active);
                     let input_active = Arc::clone(&input_active);
+                    let bulk_memory = Arc::clone(&bulk_memory);
                     tokio::spawn(async move {
                         let _stream_permit = stream_permit;
                         let mut preface = [0_u8; 4];
@@ -1356,12 +1427,26 @@ fn spawn_stream_reader(
                             return;
                         }
 
+                        // Generic stream handlers may decode a second owned
+                        // representation and, for a clipboard image, a 32 MiB
+                        // RGBA buffer. Reserve its full worst-case peak before
+                        // reading so only one large bulk payload is decoded at a
+                        // time while a concurrent configured-size text send can
+                        // still finish. Control/input streams bypass this branch.
+                        let Ok(_bulk_reservation) =
+                            bulk_memory.reserve(INBOUND_BULK_RESERVATION_BYTES)
+                        else {
+                            let _ = recv.stop(0_u32.into());
+                            let _ = send.finish();
+                            return;
+                        };
                         match recv.read_to_end(MAX_STREAM_BYTES - preface.len()).await {
                             Ok(payload) => {
                                 let mut complete =
                                     Vec::with_capacity(preface.len() + payload.len());
                                 complete.extend_from_slice(&preface);
                                 complete.extend_from_slice(&payload);
+                                drop(payload);
                                 let was_unauthenticated =
                                     matches!(peer, ConnectionPeer::Unauthenticated { .. });
                                 let accepted =
@@ -1851,6 +1936,22 @@ fn resolve_peer_addr(addr: &str) -> Result<SocketAddr, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a27_bulk_memory_budget_counts_bytes_and_releases_reservations() {
+        let budget = BulkMemoryBudget::new(128);
+        let first = budget.reserve(80).expect("first reservation");
+        assert!(budget.reserve(49).is_err());
+        let second = budget.reserve(48).expect("remaining budget");
+        assert_eq!(budget.used.load(Ordering::Acquire), 128);
+        assert!(budget.reserve(1).is_err());
+        drop(first);
+        assert_eq!(budget.used.load(Ordering::Acquire), 48);
+        let third = budget.reserve(80).expect("released bytes are reusable");
+        drop((second, third));
+        assert_eq!(budget.used.load(Ordering::Acquire), 0);
+        assert!(budget.reserve(usize::MAX).is_err());
+    }
 
     #[test]
     fn peer_health_fast_fails_after_threshold_and_recovers_on_success() {
@@ -2532,9 +2633,6 @@ mod tests {
         bulk_started_rx
             .recv_timeout(Duration::from_secs(2))
             .unwrap();
-        bulk_started_rx
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap();
 
         let peer = controller
             .control_peer(
@@ -2570,10 +2668,15 @@ mod tests {
         );
 
         bulk_release_tx.send(()).unwrap();
-        bulk_release_tx.send(()).unwrap();
+        let mut accepted = 0;
+        let mut rejected = 0;
         for thread in bulk_threads {
-            thread.join().unwrap().unwrap();
+            match thread.join().unwrap() {
+                Ok(()) => accepted += 1,
+                Err(_) => rejected += 1,
+            }
         }
+        assert_eq!((accepted, rejected), (1, 1));
         drop(input);
         controller.shutdown();
         receiver.shutdown();
