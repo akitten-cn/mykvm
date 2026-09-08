@@ -39,6 +39,10 @@ SHA `7ac6d87cc26ae17a4a465c05435230e182075fb0` 的 `scripts/build-mac-arm.sh` �
 
 SHA `c1ae061e4384392e796378a4b0d3dc931dc09549` 增加原生 Windows PowerShell NSIS 构建和 SHA-256 生成，并在 Windows 2022 CI 上传短期 artifact。Mac 上的 225 个 Rust 测试、22 个隔离测试、前端和库检查继续通过；隔离检查确认脚本不安装 helper、修改信任或创建 Release。当前没有原生 Windows 执行证据，W01/windows_build 保持 `pending_environment`，没有伪造 EXE 路径。
 
+## T24 资源采样工具
+
+SHA `139cf4644a1261896460ac4d86bfe45cf884dfb1` 增加只观察既有 PID 的 Mac 资源采样器；23 个隔离测试及其余完整适用检查通过。采样器 smoke test 对 shell PID 运行约 2 秒，证明输出格式和 top 字段可采集，不能替代 MyKVM M07。为遵守桌面安全边界没有启动 app，M07 保持 `not_run`；W05/L04 只有可复现方法，保持 `optional_not_run`。
+
 纯核心通过不等于 A01–A04 等端到端用例通过；这些用例保留 not_run 并记录部分证据。认证正反测试、协议回环、真实 Windows 分支编译、可靠释放集成、资源数据均尚未完成。详见 taskboard、testcases 和 SOURCE_AUDIT。
 
 ## T05.b 连接授权增量

@@ -598,7 +598,13 @@
       "method": "可用时采样 8 小时；时间不足记录实际时长",
       "expected": "无持续增长；不能把短时测量冒充长时",
       "blocking_development": false,
-      "status": "not_run"
+      "status": "not_run",
+      "partial_evidence": [
+        "../T24-resource-validation.md",
+        "scripts/sample-mac-resources.sh",
+        ".local-evidence/t24-sampler-smoke/ (sampler-only smoke)"
+      ],
+      "remaining": "MyKVM app was not launched; no 8-hour or shorter app runtime sample exists."
     },
     {
       "id": "W01",
@@ -646,7 +652,11 @@
       "method": "按用户鼠标实际支持的回报率测试",
       "expected": "不改本机全局设置；记录事件负载",
       "blocking_development": false,
-      "status": "optional_not_run"
+      "status": "optional_not_run",
+      "partial_evidence": [
+        "../T24-resource-validation.md"
+      ],
+      "remaining": "Requires a native Windows host and the user's physical mouse at its existing report rate."
     },
     {
       "id": "W06",
@@ -691,7 +701,11 @@
       "method": "可选固定场景比较退出/托盘/LocalGame",
       "expected": "平均FPS、1%low/P99与波动；无数据不下性能结论",
       "blocking_development": false,
-      "status": "optional_not_run"
+      "status": "optional_not_run",
+      "partial_evidence": [
+        "../T24-resource-validation.md"
+      ],
+      "remaining": "Requires user-authorized LOL practice-mode measurements; no frame-time data exists."
     }
   ]
 }

@@ -42,6 +42,7 @@
 |T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
 |T22|完成|真实 ARM64 app 与 DMG 已生成并校验；无 Developer ID/公证，未安装或启动|
 |T23|脚本完成|Windows 2022 CI 可生成无签名 NSIS 与 SHA-256 artifact；当前无 runner，Windows build 保持 pending_environment|
+|T24|工具与说明完成|被动 Mac PID 采样器和 Windows/LOL 固定记录方法完成；未启动 app，M07/W05/L04 保持未运行|
 
 T08.c 最后实现 SHA：`5d8bdb104139738bb7f7c9cfece3391019fe41d1`。提交后完整检查通过：191 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查，证据日志为本地 `.local-evidence/t08-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
 

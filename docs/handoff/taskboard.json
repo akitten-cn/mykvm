@@ -1518,17 +1518,22 @@
       "review_focus": [
         "测试没跑不记PASS；不为追求数据修改用户游戏或系统全局配置"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../T24-resource-validation.md",
+        "implementation SHA 139cf4644a1261896460ac4d86bfe45cf884dfb1",
+        ".local-evidence/t24-postcommit.log",
+        ".local-evidence/t24-sampler-smoke/ (sampler-only smoke, not M07)"
+      ],
       "blocked_reason": null
     },
     {
