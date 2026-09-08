@@ -153,6 +153,16 @@ test('T13: Windows clipboard uses a user-session listener with symmetric cleanup
   assert.match(backend, /windows_listener\.wait_for_change/)
 })
 
+test('A37: Mac clipboard stays in-process and checks changeCount before reading', () => {
+  const clipboard = read('src-tauri/src/clipboard.rs')
+  assert.match(clipboard, /NSPasteboard::generalPasteboard\(\)\.changeCount\(\)/)
+  assert.match(clipboard, /struct MacClipboardWatcher[\s\S]*?wait_for_change/)
+  assert.doesNotMatch(clipboard, /pbpaste|pbcopy/)
+  const backend = read('src-tauri/src/lib.rs')
+  assert.match(backend, /MacClipboardWatcher::start\(\)/)
+  assert.match(backend, /mac_watcher\.wait_for_change[\s\S]*?read_content_typed\(\)/)
+})
+
 test('A08/A28: Windows local game hooks bypass context and contain panics', () => {
   const gameMode = read('src-tauri/src/game_mode.rs')
   assert.match(gameMode, /static LOCAL_GAME_MODE: AtomicBool/)

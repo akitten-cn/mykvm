@@ -67,7 +67,9 @@ const CLIPBOARD_PROTOCOL: &str = "mykvm.clipboard.v1";
 // it), so a pure content-signature check can ping-pong; this window guarantees
 // we never echo received content straight back.
 const CLIPBOARD_ECHO_GRACE_MS: u64 = 1200;
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 const CLIPBOARD_POLL_INTERVAL_MS: u64 = 150;
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 const CLIPBOARD_IDLE_SLEEP_MS: u64 = 25;
 const CLIPBOARD_RETRY_INTERVAL_MS: u64 = 2000;
 const CLIPBOARD_WRITE_ATTEMPTS: usize = 5;
@@ -5440,7 +5442,7 @@ fn run_clipboard_sync(
 ) {
     let mut last_sent: Option<(String, String, String)> = None;
     let mut last_failed: Option<(String, String, String, Instant)> = None;
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let mut last_poll = Instant::now() - Duration::from_secs(1);
     let mut sequence = now_ms();
     #[cfg(target_os = "windows")]
@@ -5451,6 +5453,8 @@ fn run_clipboard_sync(
             return;
         }
     };
+    #[cfg(target_os = "macos")]
+    let mut mac_watcher = clipboard::MacClipboardWatcher::start();
 
     while !stop.load(Ordering::Relaxed) {
         let Some(target) = input::current_clipboard_target(&clipboard_target) else {
@@ -5459,8 +5463,10 @@ fn run_clipboard_sync(
                 windows_listener.wait_for_change(Duration::ZERO),
                 clipboard::ClipboardRead::Content(_)
             ) {}
+            #[cfg(target_os = "macos")]
+            mac_watcher.discard_pending_change();
             thread::sleep(Duration::from_millis(120));
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
             {
                 last_poll = Instant::now() - Duration::from_secs(1);
             }
@@ -5480,12 +5486,17 @@ fn run_clipboard_sync(
             | clipboard::ClipboardRead::Unsupported => continue,
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "macos")]
+        if !mac_watcher.wait_for_change(Duration::from_millis(120)) {
+            continue;
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         if last_poll.elapsed() < Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS) {
             thread::sleep(Duration::from_millis(CLIPBOARD_IDLE_SLEEP_MS));
             continue;
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         {
             last_poll = Instant::now();
         }

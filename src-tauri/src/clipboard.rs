@@ -220,15 +220,14 @@ mod tests {
 
     #[cfg(not(target_os = "windows"))]
     #[test]
-    fn utf8_command_sets_locale_for_clipboard_tools() {
-        let command = utf8_command("pbpaste");
-        let envs: std::collections::HashMap<_, _> = command
-            .get_envs()
-            .filter_map(|(key, value)| Some((key.to_str()?, value?.to_str()?)))
-            .collect();
-
-        assert_eq!(envs.get("LANG"), Some(&"en_US.UTF-8"));
-        assert_eq!(envs.get("LC_CTYPE"), Some(&"en_US.UTF-8"));
+    fn a32_text_model_preserves_unicode_newlines_and_long_utf8() {
+        let text = format!("中文🙂\r\nline two\n{}", "λ".repeat(16_384));
+        let content = ClipboardContent::Text(text.clone());
+        let ClipboardContent::Text(round_trip) = content else {
+            unreachable!()
+        };
+        assert_eq!(round_trip.as_bytes(), text.as_bytes());
+        assert!(!ClipboardContent::Text(text).is_oversized());
     }
 
     #[test]
@@ -278,6 +277,56 @@ mod tests {
             "the retry budget must be hard bounded"
         );
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mac_change_count_reads_only_after_a_new_revision() {
+        let mut last = 41;
+        assert!(!macos_change_observed(&mut last, 41));
+        assert!(macos_change_observed(&mut last, 42));
+        assert_eq!(last, 42);
+        assert!(!macos_change_observed(&mut last, 42));
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_change_observed(last: &mut i64, current: i64) -> bool {
+    if *last == current {
+        false
+    } else {
+        *last = current;
+        true
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) struct MacClipboardWatcher {
+    last_change_count: i64,
+}
+
+#[cfg(target_os = "macos")]
+impl MacClipboardWatcher {
+    pub(crate) fn start() -> Self {
+        Self {
+            last_change_count: macos_clipboard_change_count(),
+        }
+    }
+
+    pub(crate) fn discard_pending_change(&mut self) {
+        self.last_change_count = macos_clipboard_change_count();
+    }
+
+    pub(crate) fn wait_for_change(&mut self, timeout: std::time::Duration) -> bool {
+        std::thread::sleep(timeout);
+        macos_change_observed(&mut self.last_change_count, macos_clipboard_change_count())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_clipboard_change_count() -> i64 {
+    use objc2_app_kit::NSPasteboard;
+
+    NSPasteboard::generalPasteboard().changeCount() as i64
 }
 
 fn read_image() -> Option<ClipboardImage> {
@@ -764,21 +813,24 @@ fn read_system_text() -> Result<String, String> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 fn read_system_text() -> Result<String, String> {
-    use std::process::Command;
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|error| format!("failed to open clipboard: {error}"))?;
+    clipboard
+        .get_text()
+        .map_err(|error| format!("failed to read clipboard text: {error}"))
+}
 
-    let output = if cfg!(target_os = "macos") {
-        utf8_command("pbpaste").output()
-    } else {
-        Command::new("sh")
-            .args([
-                "-c",
-                "wl-paste -n 2>/dev/null || xclip -selection clipboard -out",
-            ])
-            .output()
-    }
-    .map_err(|error| format!("failed to read clipboard: {error}"))?;
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn read_system_text() -> Result<String, String> {
+    let output = std::process::Command::new("sh")
+        .args([
+            "-c",
+            "wl-paste -n 2>/dev/null || xclip -selection clipboard -out",
+        ])
+        .output()
+        .map_err(|error| format!("failed to read clipboard: {error}"))?;
 
     if output.status.success() {
         String::from_utf8(output.stdout)
@@ -800,19 +852,24 @@ fn write_system_text(text: &str) -> Result<(), String> {
         .map_err(|error| format!("failed to write clipboard text: {error}"))
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+fn write_system_text(text: &str) -> Result<(), String> {
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|error| format!("failed to open clipboard: {error}"))?;
+    clipboard
+        .set_text(text.to_string())
+        .map_err(|error| format!("failed to write clipboard text: {error}"))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn write_system_text(text: &str) -> Result<(), String> {
     use std::{io::Write, process::Command, process::Stdio};
 
-    let mut child = if cfg!(target_os = "macos") {
-        utf8_command("pbcopy").stdin(Stdio::piped()).spawn()
-    } else {
-        Command::new("sh")
-            .args(["-c", "wl-copy 2>/dev/null || xclip -selection clipboard"])
-            .stdin(Stdio::piped())
-            .spawn()
-    }
-    .map_err(|error| format!("failed to write clipboard: {error}"))?;
+    let mut child = Command::new("sh")
+        .args(["-c", "wl-copy 2>/dev/null || xclip -selection clipboard"])
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("failed to write clipboard: {error}"))?;
 
     if let Some(mut stdin) = child.stdin.take() {
         stdin
@@ -828,13 +885,4 @@ fn write_system_text(text: &str) -> Result<(), String> {
     } else {
         Err(format!("clipboard command exited with status {status}"))
     }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn utf8_command(program: &str) -> std::process::Command {
-    let mut command = std::process::Command::new(program);
-    command
-        .env("LANG", "en_US.UTF-8")
-        .env("LC_CTYPE", "en_US.UTF-8");
-    command
 }
