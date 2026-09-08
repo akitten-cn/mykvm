@@ -59,3 +59,7 @@ T01 已完成源码审查与基线记录；fmt/clippy 失败保留为已知基�
 Windows 原有低级键鼠 hook 和热键/贴边入口已接到独立 V2 controller client；网络回调只写有界队列，捕获线程拥有 Router 和平台状态。准备期保持本地，匹配 CommitAck 后才允许可靠关键事件，任何 V2 motion 在 T08 前失败关闭且不会调用旧 V1 datagram。
 
 本机 `rustup target list --installed` 仅返回 `aarch64-apple-darwin`。实际执行 Windows MSVC target 的 `cargo check` 后，依赖下载完成，但 rustc 在项目代码前报 E0463 `can't find crate for core`，退出码 101。没有把该结果标记为 Windows 条件编译通过，也没有修改全局 rustup 安装。
+
+## T08.b motion 调度核验
+
+原 QUIC transport 已有非阻塞 datagram 发送和连接预热，但通用命令入口是无界通道。motion 现不把每次移动直接加入该通道：每个 `MotionHandle` 只有一个可覆盖 payload 槽和一个 scheduled 位，因此积压量与鼠标事件频率无关。worker 每次 flush 后回到 transport loop，再按需重排；关闭标记阻止排队的旧会话位置继续发送。可靠 input 的有界 stream 队列和 bulk stream 并发限制保持不变。

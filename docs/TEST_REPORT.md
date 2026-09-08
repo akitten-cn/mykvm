@@ -114,3 +114,11 @@ Windows 交叉检查实际尝试后退出码 101，失败发生在项目代码�
 新增独立 V2 motion datagram 编解码，1024-byte 分配前上限及 session/sequence/reliable-floor 字段。3 项测试覆盖正常往返、零序列、超限、错误 magic 和 major。`t08a-native` 完整检查通过 181 个 Rust 库测试及其余 7 个步骤，日志为本地 `.local-evidence/t08a-native.log`。latest-wins transport 与接收应用尚未完成，T08 保持 in_progress。
 
 提交后以实现 SHA `d20467520fe33c81c5851f2fa22946cdd60845d3` 复跑整套检查，8 个步骤退出码均为 0，日志为本地 `.local-evidence/t08a-postcommit.log`。
+
+## T08.b latest-wins transport 增量
+
+新增每个 motion handle 独立的单帧槽，并以原子 scheduled 位将同一槽的待处理 QUIC 命令限制为一个。生产者连续覆盖绝对位置，worker 每轮最多发送一次后重新检查，关闭时清空未发送位置并拒绝重新调度；没有为鼠标移动逐帧创建 task。
+
+单元测试在消费 transport 命令前连续提交 100 帧，证明队列只有一个 flush 且保留 sequence 100 的最终坐标，同时覆盖关闭清理。`t08b-native` 完整检查退出码 0：182 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查通过，日志为本地 `.local-evidence/t08b-native.log`。接收端尚未应用 motion，Windows 生产发送也尚未接入，因此 A22–A27/A29 仍只具备部分证据，不标记端到端通过。
+
+提交后以实现 SHA `cfa1b995f823e46f5187060ae45c5fd094b877db` 复跑相同 8 个步骤，全部退出码为 0，日志为本地 `.local-evidence/t08b-postcommit.log`。

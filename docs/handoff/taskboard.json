@@ -619,7 +619,8 @@
         "lol_runtime": "optional_not_run"
       },
       "evidence": [
-        "../T08a-motion-protocol.md"
+        "../T08a-motion-protocol.md",
+        "../T08b-motion-slot.md"
       ],
       "blocked_reason": null,
       "subtasks": [
@@ -636,8 +637,12 @@
         {
           "id": "T08.b",
           "title": "latest-wins motion transport slot",
-          "implementation": "todo",
-          "review": "pending"
+          "implementation": "done",
+          "review": "approved",
+          "verification": {
+            "automated": "pass",
+            "scope": "1 test proves 100 updates occupy one flush command and retain only the final absolute frame; drop clears and closes the slot. Full native suite: 182 Rust tests and 9 isolation tests."
+          }
         },
         {
           "id": "T08.c",
