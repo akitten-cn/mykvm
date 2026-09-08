@@ -202,3 +202,11 @@ A38 覆盖图片尺寸乘法、RGBA 长度、base64 编码长度、摘要、默�
 QUIC 通用 bulk 发送按实际载荷预留字节，接收在读取完整 stream 前预留 124 MiB；生产端编码也从同一个 128 MiB 全局预算预留工作内存。RAII 测试连续 100 次取得和释放近上限预算并回到零，真实回环继续证明 bulk 阻塞时可靠 input 可推进。停止或网络失败由既有 5 秒发送超时有界结束；本轮没有宣称在途 stream 可瞬时取消。
 
 实现 SHA `f7e5a07f1e584fcc44ec50f1f376f3a29e8ba15d` 的提交后检查退出码 0：220 个 Rust 库测试、18 项隔离检查、前端 lint/build 和 Mac cargo check 通过。Mac 应用和真实剪贴板未运行；Windows 构建为 `pending_environment`，Windows/LOL 实机为 `optional_not_run`。
+
+## T17 后台、菜单栏与自启
+
+A39 静态核对 Rust `AppRuntime` 在任何 WebView 创建前初始化，设置关闭调用 `destroy`，隐式最后窗口退出被阻止，React 的 runtime listener 和轮询 timer 在 WebView 销毁时清理。Tauri 配置不再预建窗口；普通启动由 Rust 按需创建，带专用参数的用户登录自启保持无窗口。自启只能由设置命令显式开关，删除了客户端首次加载时自动启用的旧行为；macOS 使用用户 LaunchAgent，不创建 SYSTEM 服务或禁止睡眠。
+
+A41 在 Mac 本机创建权限 0600 的 Unix socket，第二次 bind 被识别为已有实例，并把 `activate` 消息交给第一实例。生产入口在 Tauri 运行和输入捕获前取得单实例所有权，所以第二实例只请求第一实例创建设置窗口。Windows 保留既有命名 mutex/event 和 release 无控制台属性，但本轮未在 Windows 编译。
+
+实现 SHA `e838ec27a5c863ad234b136da186ba2cdc1e1130` 的提交后检查退出码 0：222 个 Rust 库测试、19 项隔离检查、前端 lint/build 和 Mac cargo check 通过。M02 菜单栏真实关闭/重开及用户自启安装未执行，状态为 `not_run`；W02 为 `optional_not_run`。

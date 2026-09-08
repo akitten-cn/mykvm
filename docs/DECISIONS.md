@@ -31,3 +31,7 @@ Windows runner 不可用时保留真实原生检查工作流，状态记 pending
 ## ADR-007：Mac 修饰键采用字面默认
 
 Windows Ctrl 默认映射为 Mac Control，Windows 键默认映射为 Command，Alt 默认映射为 Option；这使 Ctrl+C 保留终端中断语义，Win+C/V 提供 Mac 复制粘贴语义。Ctrl/Command 互换作为显式预设提供。映射在接收端 key-down 时冻结，Caps Lock 按普通键注入；应用不假设或修改用户的 macOS 输入源快捷键。
+
+## ADR-008：后台由 Rust 所有，自启必须显式启用
+
+Tauri 启动时不预建 WebView。Rust runtime 先启动并独立存活，设置窗口按需创建、关闭时销毁。macOS/Unix 用用户级 Unix socket 阻止第二实例进入捕获和端口绑定；Windows 沿用独立命名 mutex/event。自启只由用户在设置中启用，macOS 使用 LaunchAgent 并以无窗口参数启动，不创建系统服务或抑制睡眠。

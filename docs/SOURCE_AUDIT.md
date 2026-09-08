@@ -131,3 +131,9 @@ Mac 条件编译与前端构建通过，真实剪贴板没有读取或改写。W
 原有通用 stream 只有数量并发限制，载荷进入发送队列和接收 `read_to_end` 前没有跨连接字节预算。现以进程级 128 MiB 原子预算覆盖 bulk 发送载荷、接收读取和文本/图片编码工作区；不足时在复制或解码前拒绝，permit 随成功、错误或超时路径自动释放。接收单项保守预留 124 MiB，因此同一时间只允许一个最大图片解码工作，并给小型文本编码留出余量；control、reliable input 和 motion 不消费 bulk 预算。
 
 图片 V2 操作复用 T15 的来源绑定、Lamport 排序和系统 revision 回声规则。协议先检查非零尺寸、`width * height * 4` 溢出与 32 MiB 原始上限，再核对预期 base64 长度和摘要；系统 writer 在 base64 解码前重复同一尺寸/长度检查。设置默认关闭图片，游戏模式也强制禁止发送和接收图片，文本同步不受影响。
+
+## T17 后台生命周期增量核验
+
+原配置即使 `visible=false` 仍会在自启时构造 WebView，前端还会在客户端首次加载时自动写入自启项；macOS 的单实例函数固定返回 true。现配置不预建窗口，Rust runtime、QUIC、输入和剪贴板先由 App 管理，普通启动或已有实例激活时才创建设置窗口，关闭时销毁 WebView 而不停止后台。
+
+macOS/Unix 在进程入口用用户临时目录中的 0600 Unix socket 取得唯一所有权，重复进程在进入 Tauri/runtime 前退出并发送激活消息。现有 Windows mutex/event 继续保留。自启只经设置页显式调用 Tauri autostart 插件；Mac launcher 是普通用户 LaunchAgent，参数使后台启动不创建设置窗口。源码未添加 SYSTEM 服务、驱动、登录前控制或睡眠抑制。

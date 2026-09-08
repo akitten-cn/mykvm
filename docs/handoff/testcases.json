@@ -438,7 +438,13 @@
       "method": "构造/销毁设置订阅、无 UI 时推进任务",
       "expected": "连接/路由/剪贴板继续运行，订阅释放",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": [
+        "../T17-background-autostart.md",
+        "tests::app_exit_policy_blocks_implicit_last_window_exit",
+        "scripts/fork-isolation.test.mjs A39-A41"
+      ],
+      "scope": "Rust owns runtime before any WebView exists; UI subscriptions and timers clean up on destroyed settings window"
     },
     {
       "id": "A40",
@@ -460,7 +466,13 @@
       "method": "单实例适配 fake 或平台可用实现",
       "expected": "只打开设置，不重复捕获/绑定端口",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": [
+        "../T17-background-autostart.md",
+        "tests::a41_unix_single_instance_rejects_duplicate_and_delivers_activation",
+        "scripts/fork-isolation.test.mjs A39-A41"
+      ],
+      "scope": "Mac/Unix socket ownership and activation are executed; Windows named-object path is source-reviewed but not built"
     },
     {
       "id": "A42",

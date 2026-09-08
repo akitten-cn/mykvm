@@ -1117,17 +1117,27 @@
       "review_focus": [
         "不可依赖 React 心跳保活；隐藏窗口不自动等于释放 WebView"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
-      "evidence": [],
+      "evidence": [
+        "../../src-tauri/src/lib.rs window/tray/autostart/single-instance lifecycle",
+        "../../src-tauri/src/main.rs early single-instance gate and Windows subsystem",
+        "../../src-tauri/tauri.conf.json no eager window",
+        "../../src/App.tsx subscription cleanup and explicit autostart setting",
+        "../T17-background-autostart.md",
+        ".local-evidence/t17-postcommit-rust.log",
+        ".local-evidence/t17-postcommit-isolation.log",
+        ".local-evidence/t17-postcommit-build.log",
+        ".local-evidence/t17-postcommit-mac-check.log"
+      ],
       "blocked_reason": null
     },
     {
