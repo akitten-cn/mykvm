@@ -3559,6 +3559,12 @@ fn cached_windows_input_desktop_is_default() -> bool {
     WINDOWS_INPUT_DESKTOP_DEFAULT_CACHE.load(Ordering::Relaxed)
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn accumulate_remote_delta(x: &mut f64, y: &mut f64, delta_x: f64, delta_y: f64) {
+    *x += delta_x;
+    *y += delta_y;
+}
+
 #[cfg(target_os = "windows")]
 fn refresh_windows_input_desktop_cache() -> bool {
     let value = windows_input_desktop_is_default();
@@ -3632,8 +3638,7 @@ fn handle_windows_mouse_move(context: &WindowsCaptureContext, x: f64, y: f64) ->
             return true;
         }
 
-        active_target.x += dx;
-        active_target.y += dy;
+        accumulate_remote_delta(&mut active_target.x, &mut active_target.y, dx, dy);
 
         if update_active_remote_screen(active_target, dx, dy, &context.layout_state) {
             let point = local_return_point(active_target);
@@ -7946,5 +7951,14 @@ mod tests {
         let targets = build_input_targets(&layout, &layout);
 
         assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn a25_relative_motion_accumulates_before_absolute_coalescing() {
+        let (mut x, mut y) = (100.0, 500.0);
+        for _ in 0..1_000 {
+            accumulate_remote_delta(&mut x, &mut y, 0.75, -0.25);
+        }
+        assert_eq!((x, y), (850.0, 250.0));
     }
 }
