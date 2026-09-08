@@ -71,10 +71,7 @@ impl ClipboardContent {
     pub(crate) fn is_oversized(&self) -> bool {
         match self {
             ClipboardContent::Text(text) => text.len() > CLIPBOARD_MAX_TEXT_BYTES,
-            ClipboardContent::Image(image) => {
-                // base64 inflates ~4/3; compare against the decoded RGBA budget.
-                image.rgba_base64.len() / 4 * 3 > CLIPBOARD_MAX_IMAGE_BYTES
-            }
+            ClipboardContent::Image(image) => validate_image_encoding(image).is_err(),
         }
     }
 
@@ -94,6 +91,41 @@ impl ClipboardContent {
             }
         }
     }
+}
+
+fn checked_rgba_len(width: u32, height: u32) -> Result<usize, String> {
+    let pixels = usize::try_from(width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .ok_or_else(|| "clipboard image dimensions overflow".to_string())?;
+    let bytes = pixels
+        .checked_mul(4)
+        .ok_or_else(|| "clipboard image dimensions overflow".to_string())?;
+    if width == 0 || height == 0 || bytes > CLIPBOARD_MAX_IMAGE_BYTES {
+        return Err("clipboard image dimensions exceed the RGBA budget".into());
+    }
+    Ok(bytes)
+}
+
+fn expected_base64_len(raw_bytes: usize) -> Result<usize, String> {
+    raw_bytes
+        .checked_add(2)
+        .and_then(|value| value.checked_div(3))
+        .and_then(|groups| groups.checked_mul(4))
+        .ok_or_else(|| "clipboard image encoding length overflow".to_string())
+}
+
+fn validate_image_encoding(image: &ClipboardImage) -> Result<usize, String> {
+    let raw_bytes = checked_rgba_len(image.width, image.height)?;
+    let encoded_bytes = expected_base64_len(raw_bytes)?;
+    if image.rgba_base64.len() != encoded_bytes {
+        return Err("clipboard image encoding length does not match its dimensions".into());
+    }
+    Ok(raw_bytes)
 }
 
 pub(crate) fn read_text() -> Result<String, String> {
@@ -278,6 +310,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a38_image_dimensions_and_encoding_are_bounded_before_decode() {
+        assert!(checked_rgba_len(u32::MAX, u32::MAX).is_err());
+        assert!(checked_rgba_len(4096, 4096).is_err());
+        assert_eq!(checked_rgba_len(2, 2), Ok(16));
+
+        let valid = ClipboardImage {
+            width: 2,
+            height: 2,
+            rgba_base64: "AAAAAAAAAAAAAAAAAAAAAA==".into(),
+        };
+        assert_eq!(validate_image_encoding(&valid), Ok(16));
+        let invalid = ClipboardImage {
+            rgba_base64: "AAAA".into(),
+            ..valid
+        };
+        assert!(validate_image_encoding(&invalid).is_err());
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn mac_change_count_reads_only_after_a_new_revision() {
@@ -338,16 +389,16 @@ fn read_image() -> Option<ClipboardImage> {
 
     let arboard_image = arboard::Clipboard::new().ok().and_then(|mut clipboard| {
         let image = clipboard.get_image().ok()?;
-        if image.width == 0 || image.height == 0 || image.bytes.is_empty() {
-            return None;
-        }
-        if image.bytes.len() > CLIPBOARD_MAX_IMAGE_BYTES {
+        let width = u32::try_from(image.width).ok()?;
+        let height = u32::try_from(image.height).ok()?;
+        let expected = checked_rgba_len(width, height).ok()?;
+        if image.bytes.len() != expected {
             return None;
         }
 
         Some(ClipboardImage {
-            width: image.width as u32,
-            height: image.height as u32,
+            width,
+            height,
             rgba_base64: BASE64.encode(image.bytes.as_ref()),
         })
     });
@@ -368,12 +419,13 @@ fn read_image() -> Option<ClipboardImage> {
 fn write_image(image: &ClipboardImage) -> Result<(), String> {
     use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
+    let expected = validate_image_encoding(image)?;
     let bytes = BASE64
         .decode(image.rgba_base64.as_bytes())
         .map_err(|error| format!("failed to decode clipboard image: {error}"))?;
     let width = image.width as usize;
     let height = image.height as usize;
-    if width == 0 || height == 0 || bytes.len() != width.saturating_mul(height).saturating_mul(4) {
+    if bytes.len() != expected {
         return Err("clipboard image has invalid dimensions".into());
     }
 
@@ -475,9 +527,10 @@ fn decode_windows_dib_image(data: &[u8]) -> Option<ClipboardImage> {
 
     let decoder = BmpDecoder::new_without_file_header(std::io::Cursor::new(data)).ok()?;
     let (width, height) = decoder.dimensions();
+    let expected = checked_rgba_len(width, height).ok()?;
     let rgba = DynamicImage::from_decoder(decoder).ok()?.into_rgba8();
     let bytes = rgba.into_raw();
-    if width == 0 || height == 0 || bytes.is_empty() || bytes.len() > CLIPBOARD_MAX_IMAGE_BYTES {
+    if bytes.len() != expected {
         return None;
     }
 
