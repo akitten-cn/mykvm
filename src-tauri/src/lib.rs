@@ -1277,6 +1277,57 @@ impl AppRuntime {
             ) && crate::fork_policy::V2_NATIVE_RECEIVER_ENABLED;
             self.input_receive_enabled
                 .store(receive_enabled, Ordering::Release);
+            let controller_enabled = crate::fork_policy::V2_NATIVE_CONTROLLER_ENABLED
+                && controller_client::controller_mode_enabled(
+                    &layout.machine_role,
+                    &layout.input_mode,
+                );
+            if controller_enabled {
+                let Ok(mut input_stop) = self.input_stop.lock() else {
+                    return (
+                        NativeStageStatus {
+                            state: "error".into(),
+                            detail: "input runtime lock poisoned".into(),
+                        },
+                        NativeStageStatus {
+                            state: "idle".into(),
+                            detail: "This machine is configured as a controller.".into(),
+                        },
+                    );
+                };
+                if input_stop.is_some() {
+                    return input::v2_controller_runtime_status();
+                }
+                let Some(quic_transport) = self.quic_transport_handle() else {
+                    return (
+                        NativeStageStatus {
+                            state: "error".into(),
+                            detail: "QUIC transport is not ready.".into(),
+                        },
+                        NativeStageStatus {
+                            state: "idle".into(),
+                            detail: "This machine is configured as a controller.".into(),
+                        },
+                    );
+                };
+                let stop = Arc::new(AtomicBool::new(false));
+                let statuses = input::start_v2_controller_runtime(
+                    layout,
+                    Arc::clone(&self.layout),
+                    self.native_layout(),
+                    quic_transport,
+                    Arc::clone(&stop),
+                    Arc::clone(&self.remote_input_active),
+                    Arc::clone(&self.main_window_focused),
+                    Arc::clone(&self.clipboard_target),
+                    Arc::clone(&self.input_events),
+                    Arc::clone(&self.screen_switch_request),
+                );
+                if statuses.0.state == "ready" {
+                    *input_stop = Some(stop);
+                }
+                return statuses;
+            }
             return (
                 legacy_data_blocked_status(),
                 if receive_enabled {

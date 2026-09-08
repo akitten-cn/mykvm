@@ -77,3 +77,13 @@ test('T07: native input is enabled only on the authenticated V2 path', () => {
   const lib = read('src-tauri/src/lib.rs')
   assert.match(lib, /V2_NATIVE_RECEIVER_ENABLED[\s\S]*?receiver_mode_enabled/)
 })
+
+test('T04.b3: incomplete Windows controller stays compile-time closed', () => {
+  assert.match(read('src-tauri/src/fork_policy.rs'), /V2_NATIVE_CONTROLLER_ENABLED: bool = false/)
+  const lib = read('src-tauri/src/lib.rs')
+  assert.match(lib, /V2_NATIVE_CONTROLLER_ENABLED[\s\S]*?controller_mode_enabled/)
+  const input = read('src-tauri/src/input.rs')
+  assert.match(input, /controller\.poll\([\s\S]*?false,[\s\S]*?&mut capture,[\s\S]*?&mut focus/)
+  assert.match(input, /impl FocusPort for WindowsV2FocusPort[\s\S]*?Err\(PortError::Unavailable\)/)
+  assert.match(input, /T08 provides the authenticated, lossy motion stream[\s\S]*?release_windows_remote_control/)
+})

@@ -21,6 +21,17 @@ use crate::{
     Device, LayoutState, NativeStageStatus, Screen,
 };
 
+#[cfg(any(target_os = "windows", test))]
+use crate::protocol_v2::{CriticalButton, CriticalEvent};
+
+#[cfg(target_os = "windows")]
+use crate::{
+    control_ports::{CapturePort, FocusPort},
+    controller_client::{ControllerClient, ControllerTarget, QuicControllerTransport},
+    protocol_v2::BootId,
+    routing::ReturnReason,
+};
+
 pub(crate) struct NativeInjector;
 
 impl InjectorPort for NativeInjector {
@@ -746,9 +757,67 @@ pub fn start_input_runtime(
         clipboard_target,
         input_events,
         switch_request,
+        false,
     );
 
     (capture_status, inject_status)
+}
+
+pub fn start_v2_controller_runtime(
+    layout: LayoutState,
+    layout_state: Arc<Mutex<LayoutState>>,
+    native_layout: LayoutState,
+    quic_transport: quic_transport::TransportHandle,
+    stop: Arc<AtomicBool>,
+    remote_active: Arc<AtomicBool>,
+    main_window_focused: Arc<AtomicBool>,
+    clipboard_target: Arc<Mutex<Option<ClipboardTarget>>>,
+    input_events: Arc<AtomicU64>,
+    switch_request: Arc<Mutex<Option<SwitchDirection>>>,
+) -> (NativeStageStatus, NativeStageStatus) {
+    let targets = build_input_targets(&layout, &native_layout);
+    let capture = start_input_capture(
+        targets,
+        layout_state,
+        native_layout,
+        quic_transport,
+        stop,
+        remote_active,
+        Arc::new(AtomicBool::new(false)),
+        main_window_focused,
+        clipboard_target,
+        input_events,
+        switch_request,
+        true,
+    );
+    (
+        capture,
+        NativeStageStatus {
+            state: "idle".into(),
+            detail: "This machine is configured as a V2 input controller.".into(),
+        },
+    )
+}
+
+pub fn v2_controller_runtime_status() -> (NativeStageStatus, NativeStageStatus) {
+    (
+        NativeStageStatus {
+            state: if cfg!(target_os = "windows") {
+                "ready".into()
+            } else {
+                "error".into()
+            },
+            detail: if cfg!(target_os = "windows") {
+                "V2 Windows controller capture is running.".into()
+            } else {
+                "V2 physical input control is supported on Windows only.".into()
+            },
+        },
+        NativeStageStatus {
+            state: "idle".into(),
+            detail: "This machine is configured as a V2 input controller.".into(),
+        },
+    )
 }
 
 pub fn input_runtime_status(
@@ -869,6 +938,7 @@ fn start_input_capture(
     clipboard_target: Arc<Mutex<Option<ClipboardTarget>>>,
     input_events: Arc<AtomicU64>,
     switch_request: Arc<Mutex<Option<SwitchDirection>>>,
+    controller_v2: bool,
 ) -> NativeStageStatus {
     invalidate_input_targets_cache();
     start_platform_capture(
@@ -883,6 +953,7 @@ fn start_input_capture(
         clipboard_target,
         input_events,
         switch_request,
+        controller_v2,
     )
 }
 
@@ -899,11 +970,21 @@ fn start_platform_capture(
     clipboard_target: Arc<Mutex<Option<ClipboardTarget>>>,
     input_events: Arc<AtomicU64>,
     switch_request: Arc<Mutex<Option<SwitchDirection>>>,
+    controller_v2: bool,
 ) -> NativeStageStatus {
     use core_foundation::runloop::{kCFRunLoopCommonModes, kCFRunLoopDefaultMode, CFRunLoop};
     use core_graphics::event::{
         CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement, CGEventType,
     };
+
+    if controller_v2 {
+        remote_active.store(false, Ordering::Relaxed);
+        clear_clipboard_target(&clipboard_target);
+        return NativeStageStatus {
+            state: "error".into(),
+            detail: "V2 physical input control is supported on Windows only.".into(),
+        };
+    }
 
     let (ready_tx, ready_rx) = mpsc::channel();
     let target_count = targets.len();
@@ -1102,6 +1183,7 @@ fn start_platform_capture(
     clipboard_target: Arc<Mutex<Option<ClipboardTarget>>>,
     input_events: Arc<AtomicU64>,
     switch_request: Arc<Mutex<Option<SwitchDirection>>>,
+    controller_v2: bool,
 ) -> NativeStageStatus {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         MsgWaitForMultipleObjects, PeekMessageW, SetWindowsHookExW, UnhookWindowsHookEx, MSG,
@@ -1113,6 +1195,39 @@ fn start_platform_capture(
 
     thread::spawn(move || {
         refresh_windows_input_desktop_cache();
+        let v2_controller = if controller_v2 {
+            let local_peer_id = match layout_state.lock() {
+                Ok(layout) => crate::local_peer_from_layout(&layout).id,
+                Err(_) => {
+                    let _ = ready_tx.send(Err("layout state lock poisoned".into()));
+                    return;
+                }
+            };
+            let boot = match BootId::generate() {
+                Ok(boot) => boot,
+                Err(error) => {
+                    let _ = ready_tx.send(Err(format!(
+                        "failed to generate V2 controller boot id: {error:?}"
+                    )));
+                    return;
+                }
+            };
+            match ControllerClient::new(
+                QuicControllerTransport::new(quic_transport.clone()),
+                boot,
+                local_peer_id,
+            ) {
+                Ok(controller) => Some(Mutex::new(controller)),
+                Err(error) => {
+                    let _ = ready_tx.send(Err(format!(
+                        "failed to initialize V2 controller: {error:?}"
+                    )));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let context = Arc::new(WindowsCaptureContext {
             quic_transport,
             layout_state,
@@ -1132,6 +1247,10 @@ fn start_platform_capture(
             cursor_hide_calls: Mutex::new(0),
             just_crossed: AtomicBool::new(false),
             local_screen_points: Mutex::new(HashMap::new()),
+            v2_controller,
+            v2_pending: Mutex::new(None),
+            v2_epoch: Instant::now(),
+            v2_motion_sequence: AtomicU64::new(0),
         });
 
         if let Ok(mut current) = WINDOWS_CAPTURE_CONTEXT.lock() {
@@ -1184,6 +1303,7 @@ fn start_platform_capture(
                 }
             }
             drain_switch_request_windows(&context);
+            drain_v2_controller_windows(&context);
             // Low-level hook callbacks are dispatched only while this thread
             // services its message queue. Blocking on the queue (with a short
             // timeout for the desktop/switch checks above) instead of sleeping
@@ -1202,7 +1322,7 @@ fn start_platform_capture(
             let _ = UnhookWindowsHookEx(mouse_hook);
             let _ = UnhookWindowsHookEx(keyboard_hook);
         }
-        show_windows_cursor_if_needed(&context);
+        release_windows_remote_control(&context, true);
         context.remote_active.store(false, Ordering::Relaxed);
         clear_clipboard_target(&context.clipboard_target);
         clear_windows_capture_context();
@@ -1238,6 +1358,7 @@ fn start_platform_capture(
     clipboard_target: Arc<Mutex<Option<ClipboardTarget>>>,
     _input_events: Arc<AtomicU64>,
     _switch_request: Arc<Mutex<Option<SwitchDirection>>>,
+    _controller_v2: bool,
 ) -> NativeStageStatus {
     remote_active.store(false, Ordering::Relaxed);
     clear_clipboard_target(&clipboard_target);
@@ -2649,6 +2770,16 @@ struct WindowsCaptureContext {
     // does not shove the cursor inward on Windows, where we pin by warping.
     just_crossed: AtomicBool,
     local_screen_points: Mutex<HashMap<String, (f64, f64)>>,
+    v2_controller: Option<Mutex<ControllerClient<QuicControllerTransport>>>,
+    v2_pending: Mutex<Option<PendingWindowsTarget>>,
+    v2_epoch: Instant,
+    v2_motion_sequence: AtomicU64,
+}
+
+#[cfg(target_os = "windows")]
+struct PendingWindowsTarget {
+    active: ActiveTarget,
+    crossed_edge: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -2663,6 +2794,185 @@ fn windows_capture_context() -> Option<Arc<WindowsCaptureContext>> {
 fn clear_windows_capture_context() {
     if let Ok(mut context) = WINDOWS_CAPTURE_CONTEXT.lock() {
         *context = None;
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsV2CapturePort<'a> {
+    context: &'a WindowsCaptureContext,
+    candidate: Option<PendingWindowsTarget>,
+}
+
+#[cfg(target_os = "windows")]
+impl CapturePort for WindowsV2CapturePort<'_> {
+    fn prepare_capture(&mut self) -> Result<(), PortError> {
+        if !cached_windows_input_desktop_is_default() {
+            return Err(PortError::Unavailable);
+        }
+        let candidate = self.candidate.take().ok_or(PortError::Unavailable)?;
+        let mut pending = self
+            .context
+            .v2_pending
+            .lock()
+            .map_err(|_| PortError::Unavailable)?;
+        if pending.is_some()
+            || self
+                .context
+                .active
+                .lock()
+                .map(|active| active.is_some())
+                .unwrap_or(true)
+        {
+            return Err(PortError::Unavailable);
+        }
+        *pending = Some(candidate);
+        Ok(())
+    }
+
+    fn activate_capture(&mut self) -> Result<(), PortError> {
+        if !cached_windows_input_desktop_is_default() {
+            return Err(PortError::Unavailable);
+        }
+        let pending = self
+            .context
+            .v2_pending
+            .lock()
+            .map_err(|_| PortError::Unavailable)?
+            .take()
+            .ok_or(PortError::Unavailable)?;
+        let anchor = local_anchor_point(&pending.active);
+        hide_windows_cursor_if_needed(self.context);
+        set_windows_cursor(anchor.0.round() as i32, anchor.1.round() as i32);
+        set_control_clipboard_target(
+            &self.context.clipboard_target,
+            &pending.active,
+            &self.context.layout_state,
+        );
+        *self
+            .context
+            .active
+            .lock()
+            .map_err(|_| PortError::Unavailable)? = Some(pending.active);
+        *self
+            .context
+            .anchor
+            .lock()
+            .map_err(|_| PortError::Unavailable)? = Some(anchor);
+        self.context
+            .just_crossed
+            .store(pending.crossed_edge, Ordering::Relaxed);
+        self.context.remote_active.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    fn request_local_restore(&mut self) {
+        restore_windows_capture_state(self.context, false);
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsV2FocusPort;
+
+#[cfg(target_os = "windows")]
+impl FocusPort for WindowsV2FocusPort {
+    fn prepare_focus(&mut self) -> Result<(), PortError> {
+        // T11 supplies the one-shot native focus receiver. Until then the
+        // production path must never claim focus preparation succeeded.
+        Err(PortError::Unavailable)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn begin_v2_controller_windows(
+    context: &WindowsCaptureContext,
+    active: ActiveTarget,
+    crossed_edge: bool,
+) -> bool {
+    let Some(controller) = &context.v2_controller else {
+        return false;
+    };
+    if context
+        .v2_pending
+        .lock()
+        .map(|pending| pending.is_some())
+        .unwrap_or(true)
+        || context.remote_active.load(Ordering::Acquire)
+    {
+        return false;
+    }
+    let target = ControllerTarget {
+        peer_id: active.target.device_id.clone(),
+        addr: active.target.target_addr.clone(),
+        protocol_version: active.target.protocol_version,
+        target_display: active.current_screen_id.clone(),
+    };
+    let mut controller = match controller.lock() {
+        Ok(controller) => controller,
+        Err(_) => return false,
+    };
+    let mut capture = WindowsV2CapturePort {
+        context,
+        candidate: Some(PendingWindowsTarget {
+            active,
+            crossed_edge,
+        }),
+    };
+    match controller.begin(
+        &target,
+        context
+            .v2_epoch
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64,
+        &mut capture,
+    ) {
+        Ok(()) => true,
+        Err(error) => {
+            capture.request_local_restore();
+            log::warn!("V2 controller prepare failed: {error:?}");
+            false
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn drain_v2_controller_windows(context: &WindowsCaptureContext) {
+    let Some(controller) = &context.v2_controller else {
+        return;
+    };
+    let has_pending = context
+        .v2_pending
+        .lock()
+        .map(|pending| pending.is_some())
+        .unwrap_or(false);
+    if !has_pending && !context.remote_active.load(Ordering::Acquire) {
+        return;
+    }
+    let mut controller = match controller.lock() {
+        Ok(controller) => controller,
+        Err(_) => {
+            restore_windows_capture_state(context, true);
+            return;
+        }
+    };
+    let mut capture = WindowsV2CapturePort {
+        context,
+        candidate: None,
+    };
+    let mut focus = WindowsV2FocusPort;
+    // T09 replaces this conservative value with complete physical key/button
+    // sampling. A false value can only delay/cancel activation.
+    if let Err(error) = controller.poll(
+        context
+            .v2_epoch
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64,
+        false,
+        &mut capture,
+        &mut focus,
+    ) {
+        log::warn!("V2 controller session failed closed: {error:?}");
     }
 }
 
@@ -2962,6 +3272,15 @@ unsafe extern "system" fn windows_keyboard_proc(code: i32, wparam: usize, lparam
             release_windows_remote_control(&context, false);
             return 1;
         }
+        if context.v2_controller.is_some() {
+            if v2_key_event(event.vkCode, event.scanCode, event.flags, down)
+                .is_some_and(|event| send_v2_windows_input(&context, event))
+            {
+                track_forwarded_key(&context.pressed_keys, key_code, down);
+                return 1;
+            }
+            return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+        }
         if send_packet(
             &context.quic_transport,
             &target,
@@ -3004,6 +3323,56 @@ fn windows_current_hotkey_modifiers() -> HotkeyModifiers {
         alt: down(VK_MENU),
         shift: down(VK_SHIFT),
         meta: down(VK_LWIN) || down(VK_RWIN),
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn v2_key_event(key_code: u32, scan_code: u32, flags: u32, down: bool) -> Option<CriticalEvent> {
+    Some(CriticalEvent::Key {
+        key_code: u16::try_from(key_code).ok()?,
+        scan_code: u16::try_from(scan_code).ok()?,
+        // KBDLLHOOKSTRUCT::flags bit 0 is LLKHF_EXTENDED.
+        extended: flags & 0x01 != 0,
+        down,
+    })
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn v2_button(button: MouseButton) -> CriticalButton {
+    match button {
+        MouseButton::Left => CriticalButton::Left,
+        MouseButton::Right => CriticalButton::Right,
+        MouseButton::Middle => CriticalButton::Middle,
+        MouseButton::Back => CriticalButton::Back,
+        MouseButton::Forward => CriticalButton::Forward,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn send_v2_windows_input(context: &WindowsCaptureContext, event: CriticalEvent) -> bool {
+    let Some(controller) = &context.v2_controller else {
+        return false;
+    };
+    let mut controller = match controller.lock() {
+        Ok(controller) => controller,
+        Err(_) => {
+            restore_windows_capture_state(context, true);
+            return false;
+        }
+    };
+    let mut capture = WindowsV2CapturePort {
+        context,
+        candidate: None,
+    };
+    match controller.send_input(event, &mut capture) {
+        Ok(()) => {
+            context.input_events.fetch_add(1, Ordering::Relaxed);
+            true
+        }
+        Err(error) => {
+            log::warn!("V2 critical input failed closed: {error:?}");
+            false
+        }
     }
 }
 
@@ -3051,6 +3420,25 @@ fn release_forwarded_keys_windows(context: &WindowsCaptureContext, target: &Inpu
 
 #[cfg(target_os = "windows")]
 fn release_windows_remote_control(context: &WindowsCaptureContext, clear_clipboard: bool) {
+    if let Some(controller) = &context.v2_controller {
+        if let Ok(mut controller) = controller.lock() {
+            let mut capture = WindowsV2CapturePort {
+                context,
+                candidate: None,
+            };
+            if let Err(error) = controller.go_local(ReturnReason::User, &mut capture) {
+                log::warn!("V2 controller return failed closed: {error:?}");
+                capture.request_local_restore();
+            }
+        } else {
+            restore_windows_capture_state(context, clear_clipboard);
+        }
+        if clear_clipboard {
+            clear_clipboard_target(&context.clipboard_target);
+        }
+        return;
+    }
+
     let target = context
         .active
         .lock()
@@ -3073,7 +3461,24 @@ fn release_windows_remote_control(context: &WindowsCaptureContext, clear_clipboa
         }
     }
 
-    context.remote_active.store(false, Ordering::Relaxed);
+    restore_windows_capture_state(context, clear_clipboard);
+}
+
+#[cfg(target_os = "windows")]
+fn restore_windows_capture_state(context: &WindowsCaptureContext, clear_clipboard: bool) {
+    if let Ok(mut pending) = context.v2_pending.lock() {
+        *pending = None;
+    }
+    if context.v2_controller.is_some() {
+        if let Ok(mut active) = context.active.lock() {
+            *active = None;
+        }
+        reset_remote_button_mask(&context.remote_button_mask);
+        if let Ok(mut pressed) = context.pressed_keys.lock() {
+            pressed.clear();
+        }
+    }
+    context.remote_active.store(false, Ordering::Release);
     context.just_crossed.store(false, Ordering::Relaxed);
     reset_mouse_move_timer(&context.last_mouse_move_sent);
     show_windows_cursor_if_needed(context);
@@ -3145,6 +3550,14 @@ fn handle_windows_mouse_move(context: &WindowsCaptureContext, x: f64, y: f64) ->
     };
 
     if let Some(active_target) = active.as_mut() {
+        if context.v2_controller.is_some() {
+            // T08 provides the authenticated, lossy motion stream. Until that
+            // exists, any active-session motion returns locally rather than
+            // falling through to the permanently disabled V1 datagram path.
+            drop(active);
+            release_windows_remote_control(context, true);
+            return false;
+        }
         let anchor = context
             .anchor
             .lock()
@@ -3249,6 +3662,12 @@ fn handle_windows_mouse_move(context: &WindowsCaptureContext, x: f64, y: f64) ->
 
     let targets = current_input_targets(&context.layout_state, &context.native_layout);
     if let Some(active_target) = crossing_target(&targets, x, y, dx, dy) {
+        if context.v2_controller.is_some() {
+            // Preparation leaves the Windows pointer and events local. The
+            // capture port hides/pins only after the exact CommitAck.
+            let _ = begin_v2_controller_windows(context, active_target, true);
+            return false;
+        }
         let anchor = local_anchor_point(&active_target);
         hide_windows_cursor_if_needed(context);
         set_windows_cursor(anchor.0.round() as i32, anchor.1.round() as i32);
@@ -3315,6 +3734,23 @@ fn handle_windows_mouse_button(context: &WindowsCaptureContext, message: u32, mo
         _ => return false,
     };
 
+    if context.v2_controller.is_some() {
+        let sent = send_v2_windows_input(
+            context,
+            CriticalEvent::Button {
+                button: v2_button(button),
+                down,
+                x: active_target.x.round() as i32,
+                y: active_target.y.round() as i32,
+                motion_sequence: context.v2_motion_sequence.load(Ordering::Acquire),
+            },
+        );
+        if sent {
+            update_remote_button_mask(&context.remote_button_mask, button, down);
+        }
+        return sent;
+    }
+
     if !send_remote_mouse_move(
         &context.quic_transport,
         &active_target,
@@ -3358,6 +3794,19 @@ fn handle_windows_scroll(context: &WindowsCaptureContext, message: u32, mouse_da
     } else {
         return false;
     };
+
+    if context.v2_controller.is_some() {
+        return send_v2_windows_input(
+            context,
+            CriticalEvent::Scroll {
+                delta_x,
+                delta_y,
+                x: active_target.x.round() as i32,
+                y: active_target.y.round() as i32,
+                motion_sequence: context.v2_motion_sequence.load(Ordering::Acquire),
+            },
+        );
+    }
 
     if !send_remote_mouse_move(
         &context.quic_transport,
@@ -4503,6 +4952,18 @@ fn drain_switch_request_windows(context: &WindowsCaptureContext) {
         Err(_) => return,
     };
     let Some(direction) = direction else { return };
+    if context.v2_controller.is_some()
+        && (context.remote_active.load(Ordering::Acquire)
+            || context
+                .v2_pending
+                .lock()
+                .map(|pending| pending.is_some())
+                .unwrap_or(true))
+    {
+        log::info!("screen switch returning V2 controller to local");
+        release_windows_remote_control(context, false);
+        return;
+    }
     let current_point = windows_current_cursor_point();
     match request_screen_switch_from_point(
         direction,
@@ -4516,6 +4977,10 @@ fn drain_switch_request_windows(context: &WindowsCaptureContext) {
                 "screen switch entering device={}",
                 active_target.target.device_id
             );
+            if context.v2_controller.is_some() {
+                let _ = begin_v2_controller_windows(context, active_target, false);
+                return;
+            }
             // Mirror the Windows mouse-crossing enter path. Hotkey entry has no
             // physical mouse position at the edge, so we explicitly pin to the
             // local anchor and start sending deltas from there.
@@ -5967,6 +6432,29 @@ fn inject_key(_key_code: u16, _down: bool) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_v2_key_conversion_preserves_scan_and_extended_identity() {
+        assert_eq!(
+            v2_key_event(0x25, 0x4b, 0x01, true),
+            Some(CriticalEvent::Key {
+                key_code: 0x25,
+                scan_code: 0x4b,
+                extended: true,
+                down: true,
+            })
+        );
+        assert_eq!(v2_key_event(u32::MAX, 1, 0, true), None);
+    }
+
+    #[test]
+    fn windows_v2_button_conversion_covers_side_buttons() {
+        assert_eq!(v2_button(MouseButton::Left), CriticalButton::Left);
+        assert_eq!(v2_button(MouseButton::Right), CriticalButton::Right);
+        assert_eq!(v2_button(MouseButton::Middle), CriticalButton::Middle);
+        assert_eq!(v2_button(MouseButton::Back), CriticalButton::Back);
+        assert_eq!(v2_button(MouseButton::Forward), CriticalButton::Forward);
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

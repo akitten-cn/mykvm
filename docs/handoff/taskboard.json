@@ -218,16 +218,16 @@
       "review_focus": [
         "不要用 toggle 代替指定目标；不得让返回排在图片任务后"
       ],
-      "implementation": "in_progress",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run",
-        "notes": "16 pure coordinator tests only; production integration T04.b not implemented."
+        "notes": "Router, authenticated receiver/controller adapters and Windows hook wiring implemented. Controller runtime remains compile-time closed pending T08/T09/T11; Windows native compile unavailable."
       },
       "evidence": [
         "../T04a-routing.md",
@@ -235,7 +235,8 @@
         "../T04b2-app-runtime.md",
         "../T04b3a-controller-handshake.md",
         "../T04b3b1-controller-runtime.md",
-        "../T04b3b2a-controller-client.md"
+        "../T04b3b2a-controller-client.md",
+        "../T04b3b2b-windows-wiring.md"
       ],
       "blocked_reason": null,
       "subtasks": [
@@ -260,11 +261,11 @@
             "T05",
             "T06"
           ],
-      "implementation": "in_progress",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
         "automated": "pass",
-        "scope": "T04.b1 adapter and T04.b2 AppRuntime/native receiver pass; T07 has since opened native V2 receive safely. Controller routing/hotkey wiring remains T04.b3."
+        "scope": "Receiver and controller adapters plus AppRuntime/Windows hook production wiring are implemented. Controller gate remains closed for T08/T09/T11; Windows build pending environment."
       },
       "subtasks": [
         {
@@ -292,8 +293,8 @@
         {
           "id": "T04.b3",
           "title": "控制端 Router、热键与捕获接线",
-          "implementation": "in_progress",
-          "review": "pending",
+          "implementation": "done",
+          "review": "approved",
           "subtasks": [
             {
               "id": "T04.b3.a",
@@ -318,8 +319,8 @@
             {
               "id": "T04.b3.b2",
               "title": "QUIC control/input handle 与 Windows 捕获生产接线",
-              "implementation": "in_progress",
-              "review": "pending",
+              "implementation": "done",
+              "review": "approved",
               "subtasks": [
                 {
                   "id": "T04.b3.b2a",
@@ -334,8 +335,14 @@
                 {
                   "id": "T04.b3.b2b",
                   "title": "Windows hook/捕获线程接线",
-                  "implementation": "todo",
-                  "review": "pending"
+                  "implementation": "done",
+                  "review": "approved",
+                  "verification": {
+                    "automated": "pass",
+                    "mac_build": "pass",
+                    "windows_build": "pending_environment",
+                    "scope": "AppRuntime and Windows hook source wired behind a false compile-time gate; pure event mapping and safety policy tests pass. Windows target stdlib is unavailable locally."
+                  }
                 }
               ]
             }

@@ -53,6 +53,10 @@ impl ControllerRuntime {
         )
     }
 
+    pub fn is_active(&self) -> bool {
+        self.handshake.active_session().is_some()
+    }
+
     pub fn set_game_mode(&mut self, enabled: bool) {
         self.router.set_game_mode(enabled);
     }

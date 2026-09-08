@@ -53,3 +53,9 @@ T01 已完成源码审查与基线记录；fmt/clippy 失败保留为已知基�
 `AppRuntime::start_quic_transport` 原先为 V2 control/input 传入空 handler；现已共享一个 `ReceiverSessionRuntime<NativeInjector>`，control 与 input 都检查 `input_receive_enabled` 后才进入会话适配器。不同 TLS 连接代次不能共享会话。旧 `start_discovery` 的总门禁分支现在只启动认证 QUIC endpoint，不绑定或广播旧 UDP discovery。
 
 `input.rs` 的普通用户 NativeInjector 复用现有平台注入函数，并在 Ready/每次提交前读取权限状态。源码复核同时确认主进程 `inject_input_command` 对 ReleaseAll 仍为空分支，不能满足 T07；因此新增独立 `V2_NATIVE_RECEIVER_ENABLED = false` 编译期门禁。应用即使启动也不会接受真实 V2 输入，直到按会话释放账本实现并经 FakeInjector 验证后再审查开门。
+
+## T04.b3 Windows 控制端接线核验
+
+Windows 原有低级键鼠 hook 和热键/贴边入口已接到独立 V2 controller client；网络回调只写有界队列，捕获线程拥有 Router 和平台状态。准备期保持本地，匹配 CommitAck 后才允许可靠关键事件，任何 V2 motion 在 T08 前失败关闭且不会调用旧 V1 datagram。
+
+本机 `rustup target list --installed` 仅返回 `aarch64-apple-darwin`。实际执行 Windows MSVC target 的 `cargo check` 后，依赖下载完成，但 rustc 在项目代码前报 E0463 `can't find crate for core`，退出码 101。没有把该结果标记为 Windows 条件编译通过，也没有修改全局 rustup 安装。

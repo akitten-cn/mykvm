@@ -98,3 +98,11 @@ QUIC input stream 无论正常 EOF、解码失败还是 handler 拒绝都会调�
 3 项 FakeControllerTransport 测试通过，覆盖门控握手到可靠 input、input 队列失败后的本地恢复，以及重复 begin 不替换握手中连接。提交前整套检查通过 175 个 Rust 库测试及其余 7 个步骤，日志为本地 `.local-evidence/t04b3b2a-native.log`。
 
 提交后以实现 SHA `94af28d3726ed1db02e7b021842e6ad2d5fa214a` 再次运行整套检查，8 个步骤均为退出码 0，日志为本地 `.local-evidence/t04b3b2a-postcommit.log`。Windows 平台接线尚未实现，状态不变。
+
+## T04.b3.b2b Windows capture wiring 增量
+
+Windows 生产路径已实例化 V2 controller client，接入热键/贴边准备、捕获线程 control 轮询、可靠键/按钮/滚轮、每秒 Ping 和先恢复本地的返回路径。2 项跨平台转换测试和 1 项模式测试新增；控制端编译期门禁仍为 false，T08/T09/T11 前不会真实接管输入。
+
+2026-09-08 执行 `t04b3b2b-native`，退出码 0：178 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查通过。日志为本地 `.local-evidence/t04b3b2b-native.log`。测试未启动应用、网络、键鼠或剪贴板。
+
+Windows 交叉检查实际尝试后退出码 101，失败发生在项目代码前：`x86_64-pc-windows-msvc` 标准库未安装（E0463）。Windows build 保持 pending_environment；该失败不阻塞 T08 等可在 Mac 验证的实现，也不计为产品缺陷通过。

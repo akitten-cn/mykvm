@@ -12,6 +12,11 @@ use std::sync::{
 };
 
 const INBOUND_CONTROL_FRAMES: usize = 64;
+const PING_INTERVAL_MS: u64 = 1_000;
+
+pub fn controller_mode_enabled(machine_role: &str, input_mode: &str) -> bool {
+    machine_role == "server" && input_mode == "control"
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ControllerTarget {
@@ -124,6 +129,7 @@ pub struct ControllerClient<T: ControllerTransport> {
     transport: T,
     inbound: Receiver<ControlFrame>,
     inbox: ControllerInbox,
+    next_ping_ms: Option<u64>,
 }
 
 impl<T: ControllerTransport> ControllerClient<T> {
@@ -142,6 +148,7 @@ impl<T: ControllerTransport> ControllerClient<T> {
                 sender,
                 overflowed: Arc::new(AtomicBool::new(false)),
             },
+            next_ping_ms: None,
         })
     }
 
@@ -165,6 +172,7 @@ impl<T: ControllerTransport> ControllerClient<T> {
             ));
         }
         self.clear_inbound();
+        self.next_ping_ms = None;
         self.transport
             .connect(target, self.inbox.clone())
             .map_err(ControllerClientError::Transport)?;
@@ -180,7 +188,8 @@ impl<T: ControllerTransport> ControllerClient<T> {
                 return Err(ControllerClientError::Runtime(error));
             }
         };
-        self.apply(actions, capture)
+        self.apply(actions, capture)?;
+        self.poll_ping(now_ms, capture)
     }
 
     pub fn poll<C: CapturePort, F: FocusPort>(
@@ -222,7 +231,8 @@ impl<T: ControllerTransport> ControllerClient<T> {
                 return Err(ControllerClientError::Runtime(error));
             }
         };
-        self.apply(actions, capture)
+        self.apply(actions, capture)?;
+        self.poll_ping(now_ms, capture)
     }
 
     pub fn send_input<C: CapturePort>(
@@ -250,7 +260,9 @@ impl<T: ControllerTransport> ControllerClient<T> {
             .runtime
             .go_local(reason, capture)
             .map_err(ControllerClientError::Runtime)?;
-        self.apply(actions, capture)
+        self.apply(actions, capture)?;
+        self.next_ping_ms = None;
+        Ok(())
     }
 
     fn apply<C: CapturePort>(
@@ -284,6 +296,31 @@ impl<T: ControllerTransport> ControllerClient<T> {
             }
         }
         self.transport.disconnect();
+        self.next_ping_ms = None;
+    }
+
+    fn poll_ping<C: CapturePort>(
+        &mut self,
+        now_ms: u64,
+        capture: &mut C,
+    ) -> Result<(), ControllerClientError> {
+        if !self.runtime.is_active() {
+            self.next_ping_ms = None;
+            return Ok(());
+        }
+        let due = self
+            .next_ping_ms
+            .get_or_insert_with(|| now_ms.saturating_add(PING_INTERVAL_MS));
+        if now_ms < *due {
+            return Ok(());
+        }
+        let action = self
+            .runtime
+            .ping()
+            .map_err(ControllerClientError::Runtime)?;
+        self.apply(vec![action], capture)?;
+        self.next_ping_ms = Some(now_ms.saturating_add(PING_INTERVAL_MS));
+        Ok(())
     }
 
     fn clear_inbound(&mut self) {
@@ -361,6 +398,13 @@ mod tests {
         }
     }
 
+    #[test]
+    fn controller_mode_requires_server_control_direction() {
+        assert!(controller_mode_enabled("server", "control"));
+        assert!(!controller_mode_enabled("client", "control"));
+        assert!(!controller_mode_enabled("server", "receive"));
+    }
+
     fn start() -> (ControllerClient<FakeControllerTransport>, FakeCapture, u64) {
         let mut client = ControllerClient::new(
             FakeControllerTransport::default(),
@@ -396,6 +440,11 @@ mod tests {
             .receive(ControlFrame::CommitAck { session_id });
         client.poll(3, true, &mut capture, &mut focus).unwrap();
         assert!(client.transport.input_open);
+        client.poll(1_003, true, &mut capture, &mut focus).unwrap();
+        assert!(matches!(
+            client.transport.controls.last(),
+            Some(ControlFrame::Ping { sequence: 1, .. })
+        ));
         client
             .send_input(
                 CriticalEvent::Button {
