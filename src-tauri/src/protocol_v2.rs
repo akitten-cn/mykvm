@@ -1,13 +1,18 @@
-use ring::rand::{SecureRandom, SystemRandom};
+use ring::{
+    digest,
+    rand::{SecureRandom, SystemRandom},
+};
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_MAJOR: u16 = 2;
 pub const MAX_CONTROL_FRAME_BYTES: usize = 16 * 1024;
 pub const MAX_CRITICAL_FRAME_BYTES: usize = 4 * 1024;
 pub const MAX_MOTION_FRAME_BYTES: usize = 1024;
+pub const MAX_BULK_FRAME_BYTES: usize = 2 * 1024 * 1024;
 const MAGIC: u32 = u32::from_be_bytes(*b"MKV2");
 const INPUT_MAGIC: u32 = u32::from_be_bytes(*b"MKI2");
 const MOTION_MAGIC: u32 = u32::from_be_bytes(*b"MKM2");
+const BULK_MAGIC: u32 = u32::from_be_bytes(*b"MKB2");
 const MAX_PEER_ID_BYTES: usize = 256;
 const MAX_CAPABILITIES: usize = 32;
 const MAX_CAPABILITY_BYTES: usize = 64;
@@ -21,8 +26,24 @@ pub enum DeviceRole {
     Receiver,
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BootId(pub [u8; 16]);
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ClipboardOperationId {
+    pub boot_id: BootId,
+    pub local_sequence: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClipboardTextOperation {
+    pub operation_id: ClipboardOperationId,
+    pub origin_peer: String,
+    pub system_revision: u64,
+    pub lamport: u64,
+    pub digest: [u8; 32],
+    pub text: String,
+}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionId {
@@ -182,6 +203,13 @@ struct MotionEnvelope {
     frame: MotionFrame,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct BulkEnvelope {
+    magic: u32,
+    major: u16,
+    operation: ClipboardTextOperation,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProtocolError {
     FrameTooLarge(usize),
@@ -246,6 +274,67 @@ pub fn encode_motion(frame: &MotionFrame) -> Result<Vec<u8>, ProtocolError> {
         return Err(ProtocolError::FrameTooLarge(payload.len()));
     }
     Ok(payload)
+}
+
+pub fn clipboard_text_digest(bytes: &[u8]) -> [u8; 32] {
+    let value = digest::digest(&digest::SHA256, bytes);
+    let mut result = [0_u8; 32];
+    result.copy_from_slice(value.as_ref());
+    result
+}
+
+impl ClipboardTextOperation {
+    pub fn encode(&self) -> Result<Vec<u8>, ProtocolError> {
+        validate_clipboard_text_operation(self)?;
+        let payload = rmp_serde::to_vec_named(&BulkEnvelope {
+            magic: BULK_MAGIC,
+            major: PROTOCOL_MAJOR,
+            operation: self.clone(),
+        })
+        .map_err(|_| ProtocolError::Decode)?;
+        if payload.is_empty() || payload.len() > MAX_BULK_FRAME_BYTES {
+            return Err(ProtocolError::FrameTooLarge(payload.len()));
+        }
+        Ok(payload)
+    }
+
+    pub fn decode(payload: &[u8]) -> Result<Self, ProtocolError> {
+        if payload.is_empty() {
+            return Err(ProtocolError::InvalidLength);
+        }
+        if payload.len() > MAX_BULK_FRAME_BYTES {
+            return Err(ProtocolError::FrameTooLarge(payload.len()));
+        }
+        let envelope: BulkEnvelope =
+            rmp_serde::from_slice(payload).map_err(|_| ProtocolError::Decode)?;
+        if envelope.magic != BULK_MAGIC {
+            return Err(ProtocolError::InvalidMagic);
+        }
+        if envelope.major != PROTOCOL_MAJOR {
+            return Err(ProtocolError::UnsupportedMajor(envelope.major));
+        }
+        validate_clipboard_text_operation(&envelope.operation)?;
+        Ok(envelope.operation)
+    }
+}
+
+fn validate_clipboard_text_operation(
+    operation: &ClipboardTextOperation,
+) -> Result<(), ProtocolError> {
+    validate_text(&operation.origin_peer, MAX_PEER_ID_BYTES, "origin_peer")?;
+    if operation.operation_id.local_sequence == 0 {
+        return Err(ProtocolError::InvalidField("local_sequence"));
+    }
+    if operation.lamport == 0 {
+        return Err(ProtocolError::InvalidField("lamport"));
+    }
+    if operation.text.is_empty() {
+        return Err(ProtocolError::InvalidField("text"));
+    }
+    if operation.digest != clipboard_text_digest(operation.text.as_bytes()) {
+        return Err(ProtocolError::InvalidField("digest"));
+    }
+    Ok(())
 }
 
 pub fn decode_motion(payload: &[u8]) -> Result<MotionFrame, ProtocolError> {
