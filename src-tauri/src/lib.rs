@@ -23,6 +23,7 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod clipboard;
+pub mod control_ports;
 mod fork_policy;
 mod input;
 mod performance;

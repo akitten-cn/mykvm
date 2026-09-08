@@ -171,17 +171,20 @@
       "review_focus": [
         "测试不能抢 Codex 输入焦点；生产代码不得默认接受 test token"
       ],
-      "implementation": "todo",
-      "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
+        "automated": "pass",
         "mac_build": "not_run",
         "mac_runtime": "not_run",
-        "windows_build": "not_run",
+        "windows_build": "pending_environment",
         "windows_runtime": "optional_not_run",
-        "lol_runtime": "optional_not_run"
+        "lol_runtime": "optional_not_run",
+        "notes": "5 port tests only; M05 protocol loopback and A28 native hook proof remain pending."
       },
-      "evidence": [],
+      "evidence": [
+        "../T03-test-ports.md"
+      ],
       "blocked_reason": null
     },
     {
@@ -226,7 +229,29 @@
         "lol_runtime": "optional_not_run"
       },
       "evidence": [],
-      "blocked_reason": null
+      "blocked_reason": null,
+      "subtasks": [
+        {
+          "id": "T04.a",
+          "title": "纯路由状态及原子应急通道",
+          "depends_on": [
+            "T03"
+          ],
+          "implementation": "todo",
+          "review": "pending"
+        },
+        {
+          "id": "T04.b",
+          "title": "V2 认证握手与真实平台/IPC 接入",
+          "depends_on": [
+            "T04.a",
+            "T05",
+            "T06"
+          ],
+          "implementation": "todo",
+          "review": "pending"
+        }
+      ]
     },
     {
       "id": "T05",
