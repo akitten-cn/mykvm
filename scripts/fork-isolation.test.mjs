@@ -85,5 +85,6 @@ test('T04.b3: incomplete Windows controller stays compile-time closed', () => {
   const input = read('src-tauri/src/input.rs')
   assert.match(input, /controller\.poll\([\s\S]*?false,[\s\S]*?&mut capture,[\s\S]*?&mut focus/)
   assert.match(input, /impl FocusPort for WindowsV2FocusPort[\s\S]*?Err\(PortError::Unavailable\)/)
-  assert.match(input, /T08 provides the authenticated, lossy motion stream[\s\S]*?release_windows_remote_control/)
+  assert.match(input, /fn send_v2_windows_motion[\s\S]*?controller\.send_motion/)
+  assert.match(input, /v2_motion_sequence[\s\S]*?store\(sequence, Ordering::Release\)/)
 })

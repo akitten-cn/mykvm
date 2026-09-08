@@ -2926,7 +2926,10 @@ fn begin_v2_controller_windows(
             .min(u128::from(u64::MAX)) as u64,
         &mut capture,
     ) {
-        Ok(()) => true,
+        Ok(()) => {
+            context.v2_motion_sequence.store(0, Ordering::Release);
+            true
+        }
         Err(error) => {
             capture.request_local_restore();
             log::warn!("V2 controller prepare failed: {error:?}");
@@ -2973,6 +2976,32 @@ fn drain_v2_controller_windows(context: &WindowsCaptureContext) {
         &mut focus,
     ) {
         log::warn!("V2 controller session failed closed: {error:?}");
+        return;
+    }
+    if context.remote_active.load(Ordering::Acquire)
+        && context.v2_motion_sequence.load(Ordering::Acquire) == 0
+    {
+        let initial = context
+            .active
+            .lock()
+            .ok()
+            .and_then(|active| active.as_ref().map(|active| (active.x, active.y)));
+        let Some((x, y)) = initial else {
+            capture.request_local_restore();
+            return;
+        };
+        match controller.send_motion(x.round() as i32, y.round() as i32, &mut capture) {
+            Ok(sequence) => {
+                context
+                    .v2_motion_sequence
+                    .store(sequence, Ordering::Release);
+                context.input_events.fetch_add(1, Ordering::Relaxed);
+                mark_mouse_move_sent(&context.last_mouse_move_sent);
+            }
+            Err(error) => {
+                log::warn!("V2 initial motion failed closed: {error:?}");
+            }
+        }
     }
 }
 
@@ -3376,6 +3405,37 @@ fn send_v2_windows_input(context: &WindowsCaptureContext, event: CriticalEvent) 
     }
 }
 
+#[cfg(target_os = "windows")]
+fn send_v2_windows_motion(context: &WindowsCaptureContext, x: i32, y: i32) -> bool {
+    let Some(controller) = &context.v2_controller else {
+        return false;
+    };
+    let mut controller = match controller.lock() {
+        Ok(controller) => controller,
+        Err(_) => {
+            restore_windows_capture_state(context, true);
+            return false;
+        }
+    };
+    let mut capture = WindowsV2CapturePort {
+        context,
+        candidate: None,
+    };
+    match controller.send_motion(x, y, &mut capture) {
+        Ok(sequence) => {
+            context
+                .v2_motion_sequence
+                .store(sequence, Ordering::Release);
+            context.input_events.fetch_add(1, Ordering::Relaxed);
+            true
+        }
+        Err(error) => {
+            log::warn!("V2 motion failed closed: {error:?}");
+            false
+        }
+    }
+}
+
 /// Remembers which keys we have forwarded as pressed so they can be released if
 /// the cursor returns to the local machine while a key is still held.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -3477,6 +3537,7 @@ fn restore_windows_capture_state(context: &WindowsCaptureContext, clear_clipboar
         if let Ok(mut pressed) = context.pressed_keys.lock() {
             pressed.clear();
         }
+        context.v2_motion_sequence.store(0, Ordering::Release);
     }
     context.remote_active.store(false, Ordering::Release);
     context.just_crossed.store(false, Ordering::Relaxed);
@@ -3550,14 +3611,6 @@ fn handle_windows_mouse_move(context: &WindowsCaptureContext, x: f64, y: f64) ->
     };
 
     if let Some(active_target) = active.as_mut() {
-        if context.v2_controller.is_some() {
-            // T08 provides the authenticated, lossy motion stream. Until that
-            // exists, any active-session motion returns locally rather than
-            // falling through to the permanently disabled V1 datagram path.
-            drop(active);
-            release_windows_remote_control(context, true);
-            return false;
-        }
         let anchor = context
             .anchor
             .lock()
@@ -3584,6 +3637,12 @@ fn handle_windows_mouse_move(context: &WindowsCaptureContext, x: f64, y: f64) ->
 
         if update_active_remote_screen(active_target, dx, dy, &context.layout_state) {
             let point = local_return_point(active_target);
+            if context.v2_controller.is_some() {
+                drop(active);
+                release_windows_remote_control(context, false);
+                set_windows_cursor(point.0.round() as i32, point.1.round() as i32);
+                return true;
+            }
             let target = active_target.target.clone();
             // Control is returning to the local machine: park the controlled
             // cursor in a corner so it doesn't visibly linger at the shared edge.
@@ -3621,6 +3680,17 @@ fn handle_windows_mouse_move(context: &WindowsCaptureContext, x: f64, y: f64) ->
             .clamp(0.0, (active_target.current_screen.height - 1) as f64);
         let dragging = remote_button_is_down(&context.remote_button_mask);
         if should_send_mouse_move(&context.last_mouse_move_sent, dragging) {
+            if context.v2_controller.is_some() {
+                let remote_x = active_target.x.round() as i32;
+                let remote_y = active_target.y.round() as i32;
+                drop(active);
+                if !send_v2_windows_motion(context, remote_x, remote_y) {
+                    return false;
+                }
+                hide_windows_cursor_if_needed(context);
+                set_windows_cursor(anchor.0.round() as i32, anchor.1.round() as i32);
+                return true;
+            }
             if !send_remote_mouse_move(
                 &context.quic_transport,
                 active_target,
