@@ -46,6 +46,19 @@ impl PressedState {
         self.keys.is_empty() && self.buttons.is_empty()
     }
 
+    pub fn drag_button(&self) -> Option<MouseButton> {
+        [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
+            .into_iter()
+            .find(|button| self.buttons.iter().any(|held| held.button == *button))
+    }
+
+    pub fn update_pointer(&mut self, x: i32, y: i32) {
+        for held in &mut self.buttons {
+            held.x = x;
+            held.y = y;
+        }
+    }
+
     pub fn apply(&mut self, event: &CriticalEvent) -> Vec<InputCommand> {
         match *event {
             CriticalEvent::Key {
@@ -248,5 +261,29 @@ mod tests {
             ]
         );
         assert!(state.release_all().is_empty());
+    }
+
+    #[test]
+    fn motion_tracks_drag_button_and_updates_release_position() {
+        let mut state = PressedState::default();
+        state.apply(&CriticalEvent::Button {
+            button: CriticalButton::Left,
+            down: true,
+            x: 10,
+            y: 20,
+            motion_sequence: 1,
+        });
+        assert_eq!(state.drag_button(), Some(MouseButton::Left));
+        state.update_pointer(80, 90);
+        assert_eq!(
+            state.release_all(),
+            vec![InputCommand::MouseButton {
+                button: MouseButton::Left,
+                down: false,
+                x: 80,
+                y: 90,
+            }]
+        );
+        assert_eq!(state.drag_button(), None);
     }
 }
