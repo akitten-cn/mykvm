@@ -487,9 +487,19 @@ pub struct ReceiverHandshake {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ControllerState {
     Idle,
-    AwaitReady { request_id: u64 },
-    AwaitCommitAck { session_id: SessionId },
-    Active { session_id: SessionId },
+    AwaitReady {
+        request_id: u64,
+    },
+    Ready {
+        request_id: u64,
+        session_id: SessionId,
+    },
+    AwaitCommitAck {
+        session_id: SessionId,
+    },
+    Active {
+        session_id: SessionId,
+    },
     Ended,
 }
 
@@ -558,11 +568,11 @@ impl ControllerHandshake {
                 },
             ) if request_id == *received && receiver_boot.0 != [0; 16] => {
                 let session_id = SessionId::generate(self.local_boot, *receiver_boot)?;
-                self.state = ControllerState::AwaitCommitAck { session_id };
-                Ok(Some(ControlFrame::Commit {
+                self.state = ControllerState::Ready {
                     request_id,
                     session_id,
-                }))
+                };
+                Ok(None)
             }
             (
                 ControllerState::AwaitCommitAck { session_id },
@@ -614,6 +624,31 @@ impl ControllerHandshake {
             ControllerState::Active { session_id } => Some(session_id),
             _ => None,
         }
+    }
+
+    pub fn prepared_session(&self) -> Option<(u64, SessionId)> {
+        match self.state {
+            ControllerState::Ready {
+                request_id,
+                session_id,
+            } => Some((request_id, session_id)),
+            _ => None,
+        }
+    }
+
+    pub fn commit(
+        &mut self,
+        request_id: u64,
+        session_id: SessionId,
+    ) -> Result<ControlFrame, ProtocolError> {
+        if self.prepared_session() != Some((request_id, session_id)) {
+            return Err(ProtocolError::WrongSession);
+        }
+        self.state = ControllerState::AwaitCommitAck { session_id };
+        Ok(ControlFrame::Commit {
+            request_id,
+            session_id,
+        })
     }
 
     pub fn ping(&mut self) -> Result<ControlFrame, ProtocolError> {
@@ -1189,14 +1224,18 @@ mod tests {
                 target_display: "mac-main".into(),
             }
         );
-        let commit = controller
-            .handle(&ControlFrame::Ready {
-                request_id: 7,
-                receiver_boot: boot(2),
-                input_ready: true,
-            })
-            .unwrap()
-            .unwrap();
+        assert_eq!(
+            controller
+                .handle(&ControlFrame::Ready {
+                    request_id: 7,
+                    receiver_boot: boot(2),
+                    input_ready: true,
+                })
+                .unwrap(),
+            None
+        );
+        let (request_id, prepared_session) = controller.prepared_session().unwrap();
+        let commit = controller.commit(request_id, prepared_session).unwrap();
         let ControlFrame::Commit { session_id, .. } = commit else {
             panic!("commit")
         };
@@ -1237,14 +1276,18 @@ mod tests {
             }),
             Err(ProtocolError::WrongSession)
         );
-        let commit = controller
-            .handle(&ControlFrame::Ready {
-                request_id: 7,
-                receiver_boot: boot(2),
-                input_ready: true,
-            })
-            .unwrap()
-            .unwrap();
+        assert_eq!(
+            controller
+                .handle(&ControlFrame::Ready {
+                    request_id: 7,
+                    receiver_boot: boot(2),
+                    input_ready: true,
+                })
+                .unwrap(),
+            None
+        );
+        let (request_id, prepared_session) = controller.prepared_session().unwrap();
+        let commit = controller.commit(request_id, prepared_session).unwrap();
         let ControlFrame::Commit { session_id, .. } = commit else {
             panic!("commit")
         };

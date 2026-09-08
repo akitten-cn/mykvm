@@ -233,7 +233,8 @@
         "../T04a-routing.md",
         "../T04b1-session-adapter.md",
         "../T04b2-app-runtime.md",
-        "../T04b3a-controller-handshake.md"
+        "../T04b3a-controller-handshake.md",
+        "../T04b3b1-controller-runtime.md"
       ],
       "blocked_reason": null,
       "subtasks": [
@@ -304,8 +305,18 @@
               }
             },
             {
-              "id": "T04.b3.b",
-              "title": "Router 到 QUIC control/input 与 Windows 捕获接线",
+              "id": "T04.b3.b1",
+              "title": "Router 与控制端握手适配器",
+              "implementation": "done",
+              "review": "approved",
+              "verification": {
+                "automated": "pass",
+                "scope": "5 FakeCapture/FakeFocus tests cover gated Commit, strict activation, early/late ACK and invalid active frame fail-closed behavior, plus restore-before-End ordering."
+              }
+            },
+            {
+              "id": "T04.b3.b2",
+              "title": "QUIC control/input handle 与 Windows 捕获生产接线",
               "implementation": "todo",
               "review": "pending"
             }

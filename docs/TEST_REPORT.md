@@ -80,3 +80,11 @@ QUIC input stream 无论正常 EOF、解码失败还是 handler 拒绝都会调�
 控制端握手纯逻辑生成 Hello/Prepare，拒绝错误 request、未就绪 Ready 和错误 CommitAck，并以控制端 boot、接收端 boot 和随机 nonce 构造新 SessionId。只有 Active 会话可发 Ping/End；Pong 必须匹配当前 session、已发送 ping 序列和单调远端进度。2 项定向测试通过。此阶段尚未接 Router、QUIC handle 或 Windows 捕获，不把纯逻辑测试计为实际切换可用。
 
 提交后复核记录 SHA `212d3c7772976af60e58b9c5ea40359b1c249ed0`，167 个 Rust 库测试及其余 7 个检查步骤退出码均为 0，日志为本地 `.local-evidence/t04b3a-postcommit.log`。
+
+## T04.b3.b1 controller runtime 增量
+
+控制端握手不再在 Ready 时自动生成 Commit；`ControllerRuntime` 只有在 Router 确认物理键已释放且 FocusPort 成功后才显式 Commit。5 项 FakeCapture/FakeFocus 测试覆盖正常激活、输入严格序列、ACK 前应急取消、提前 ACK/非法活动帧失败关闭和返回本地的动作顺序。
+
+2026-09-08 在 Mac arm64 上执行 `../source/with-rust.sh python3 ../source/run-check.py t04b3b1-native node scripts/check-native.mjs`，退出码 0。最终复跑为 172 个 Rust 库测试、8 项隔离检查、前端 lint/build、Mac cargo check 和包含新适配器的核心格式检查全部通过。证据基线 SHA 为 `c78069f6b0073047081eb0e483db046949f7cc90`，日志为本地 `.local-evidence/t04b3b1-native.log`；提交后复核待运行。
+
+这些测试不启动应用、网络或系统输入。Windows hook 和 QUIC control/input handle 尚未接入，Windows 构建仍为 pending_environment，不能据此宣称产品可用。
