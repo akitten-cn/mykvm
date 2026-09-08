@@ -529,6 +529,7 @@ struct AppRuntime {
     allow_explicit_quit: Arc<AtomicBool>,
     clipboard_target: Arc<Mutex<Option<input::ClipboardTarget>>>,
     input_receive_enabled: Arc<AtomicBool>,
+    v2_session_fault: Arc<Mutex<Option<String>>>,
     upgrading: Arc<AtomicBool>,
     clipboard_receive_enabled: Arc<AtomicBool>,
     transport_packets: Arc<AtomicU64>,
@@ -567,6 +568,7 @@ impl AppRuntime {
             allow_explicit_quit: Arc::new(AtomicBool::new(false)),
             clipboard_target: Arc::new(Mutex::new(None)),
             input_receive_enabled: Arc::new(AtomicBool::new(false)),
+            v2_session_fault: Arc::new(Mutex::new(None)),
             upgrading: Arc::new(AtomicBool::new(false)),
             clipboard_receive_enabled: Arc::new(AtomicBool::new(false)),
             transport_packets: Arc::new(AtomicU64::new(0)),
@@ -620,6 +622,14 @@ impl AppRuntime {
         runtime.clipboard = self.clipboard_status(layout);
         runtime.pairing = self.pairing_status_for_layout(layout);
         runtime.privilege = current_privilege_status();
+        if let Ok(fault) = self.v2_session_fault.lock() {
+            if let Some(detail) = fault.as_ref() {
+                runtime.inject = NativeStageStatus {
+                    state: "error".into(),
+                    detail: detail.clone(),
+                };
+            }
+        }
 
         runtime
     }
@@ -749,8 +759,17 @@ impl AppRuntime {
         )));
         let receiver_for_control = Arc::clone(&receiver_runtime);
         let receiver_for_input = Arc::clone(&receiver_runtime);
+        let receiver_for_input_close = Arc::clone(&receiver_runtime);
+        let receiver_for_lease = Arc::downgrade(&receiver_runtime);
+        let lease_epoch = Arc::new(Instant::now());
+        let lease_epoch_for_control = Arc::clone(&lease_epoch);
+        let lease_epoch_for_input = Arc::clone(&lease_epoch);
         let v2_control_enabled = Arc::clone(&self.input_receive_enabled);
         let v2_input_enabled = Arc::clone(&self.input_receive_enabled);
+        let fault_for_control = Arc::clone(&self.v2_session_fault);
+        let fault_for_input = Arc::clone(&self.v2_session_fault);
+        let fault_for_input_close = Arc::clone(&self.v2_session_fault);
+        let fault_for_lease = Arc::clone(&self.v2_session_fault);
 
         let on_datagram = Arc::new(
             move |payload: Vec<u8>, authenticated: quic_transport::AuthenticatedPeer| {
@@ -888,28 +907,112 @@ impl AppRuntime {
                 receiver_for_control
                     .lock()
                     .ok()
-                    .and_then(|mut receiver| match receiver.handle_control(&frame, &authenticated) {
-                        Ok(response) => response,
-                        Err(error) => Some(protocol_v2::ControlFrame::Reject {
-                            code: "session_rejected".into(),
-                            detail: format!("{error:?}"),
-                        }),
+                    .and_then(|mut receiver| {
+                        match receiver.handle_control_at(
+                            &frame,
+                            &authenticated,
+                            lease_epoch_for_control
+                                .elapsed()
+                                .as_millis()
+                                .min(u128::from(u64::MAX))
+                                as u64,
+                        ) {
+                            Ok(response) => {
+                                if matches!(response, Some(protocol_v2::ControlFrame::CommitAck { .. })) {
+                                    if let Ok(mut fault) = fault_for_control.lock() {
+                                        *fault = None;
+                                    }
+                                }
+                                response
+                            }
+                            Err(error) => {
+                                if let Ok(mut fault) = fault_for_control.lock() {
+                                    *fault = Some(format!("V2 session rejected: {error:?}"));
+                                }
+                                Some(protocol_v2::ControlFrame::Reject {
+                                    code: "session_rejected".into(),
+                                    detail: format!("{error:?}"),
+                                })
+                            }
+                        }
                     })
             }),
             Arc::new(move |frame, authenticated| {
                 if !v2_input_enabled.load(Ordering::Acquire) {
                     return false;
                 }
-                let accepted = receiver_for_input
+                let result = receiver_for_input
                     .lock()
-                    .map(|mut receiver| receiver.handle_input(&frame, &authenticated).is_ok())
-                    .unwrap_or(false);
+                    .map(|mut receiver| {
+                        receiver
+                            .handle_input_at(
+                                &frame,
+                                &authenticated,
+                                lease_epoch_for_input
+                                    .elapsed()
+                                    .as_millis()
+                                    .min(u128::from(u64::MAX))
+                                    as u64,
+                            )
+                    });
+                let accepted = matches!(result, Ok(Ok(())));
                 if accepted {
                     input_events_for_v2.fetch_add(1, Ordering::Relaxed);
+                } else if let Ok(mut fault) = fault_for_input.lock() {
+                    *fault = Some(match result {
+                        Ok(Err(error)) => format!("V2 input rejected: {error:?}"),
+                        Err(_) => "V2 input session lock is unavailable".into(),
+                        Ok(Ok(())) => unreachable!(),
+                    });
                 }
                 accepted
             }),
+            Arc::new(move |authenticated, reason| {
+                let result = receiver_for_input_close
+                    .lock()
+                    .map(|mut receiver| receiver.input_stream_closed(&authenticated));
+                match result {
+                    Ok(Ok(true)) => {
+                        if let Ok(mut fault) = fault_for_input_close.lock() {
+                            *fault = Some(format!(
+                                "V2 input stream closed; held input was released: {reason}"
+                            ));
+                        }
+                    }
+                    Ok(Err(error)) => {
+                        if let Ok(mut fault) = fault_for_input_close.lock() {
+                            *fault = Some(format!(
+                                "V2 input stream cleanup failed: {error:?}"
+                            ));
+                        }
+                    }
+                    _ => {}
+                }
+            }),
         )?;
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_millis(100));
+            let Some(receiver) = receiver_for_lease.upgrade() else {
+                break;
+            };
+            if let Ok(mut receiver) = receiver.lock() {
+                let now_ms = lease_epoch.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                match receiver.expire_if_needed(now_ms) {
+                    Ok(true) => {
+                        if let Ok(mut fault) = fault_for_lease.lock() {
+                            *fault = Some("V2 input lease expired; held input was released.".into());
+                        }
+                    }
+                    Err(error) => {
+                        if let Ok(mut fault) = fault_for_lease.lock() {
+                            *fault = Some(format!("V2 input lease cleanup failed: {error:?}"));
+                        }
+                        log::warn!("V2 input lease cleanup failed: {error:?}");
+                    }
+                    Ok(false) => {}
+                }
+            };
+        });
         let mut stored = self
             .quic_transport
             .lock()

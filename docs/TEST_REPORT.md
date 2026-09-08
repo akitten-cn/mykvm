@@ -68,3 +68,9 @@
 新增 `PressedState`，以物理 scan code/extended 标识输入源，并冻结 key-down 当时的目标 key code。测试证明自动重复不增加所有权、两个物理源映射到同一目标时不会提前 key-up、正常 End 对每个目标只提交一次真实 up、按钮释放使用账本位置。ReceiverSessionRuntime 不再依赖空操作 ReleaseAll，而是逐项经 InjectorPort 提交释放。
 
 故障测试覆盖 key-down/key-up 提交失败：会话立即结束并尽力释放；释放失败时账本恢复，后续重复 End 可重试。A19/A20 标记 pass；A21 只记录注入失败部分证据，因为 decoder/stream 失败仍需 T07.b 的租约通知。断线/健康超时 A18 仍未实现，因此生产接收门禁继续关闭。
+
+## T07.b lease/health 增量
+
+接收会话使用 3000 ms 活动租约，成功 Commit、关键输入和有效 Ping 刷新时间。FakeClock 测试证明截止前不清理、到期时关闭 handshake/input gate 并提交账本中的真实 up；Ping 可延后截止。释放提交失败会保留账本并写入可查询 fault，AppRuntime 将 fault 显示为 inject error。
+
+QUIC input stream 无论正常 EOF、解码失败还是 handler 拒绝都会调用认证的 close handler；真实回环测试确认 handle 丢弃后回调携带原认证 peer。ReceiverSessionRuntime 随即结束匹配会话并释放，避免 control Ping 在坏 input stream 后无限续租。A18/A21 标记 pass。165 项 Rust 库测试通过后，`V2_NATIVE_RECEIVER_ENABLED` 开为 true；旧 LAN 路径仍为 false。

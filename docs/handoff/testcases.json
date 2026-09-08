@@ -197,7 +197,8 @@
       "method": "FakeClock+正常工作的 InjectorPort 下断网",
       "expected": "超时后释放本会话已提交的输入",
       "blocking_development": true,
-      "status": "not_run"
+      "status": "pass",
+      "evidence": ["../T07b-lease-health.md", "session_runtime::tests::a18_lease_timeout_releases_pressed_input"]
     },
     {
       "id": "A19",
@@ -226,9 +227,8 @@
       "method": "关键事件处理中途错误",
       "expected": "会话结束、尽力释放、错误可见",
       "blocking_development": true,
-      "status": "not_run",
-      "partial_evidence": ["../T07a-pressed-state.md", "session_runtime::tests::injector_failure_aborts_session_and_attempts_release", "session_runtime::tests::failed_key_up_remains_in_ledger_and_end_retries_release"],
-      "remaining": "Injector failure ends and releases; decoder/stream failure must notify the lease runtime in T07.b."
+      "status": "pass",
+      "evidence": ["../T07a-pressed-state.md", "../T07b-lease-health.md", "session_runtime::tests::injector_failure_aborts_session_and_attempts_release", "session_runtime::tests::failed_key_up_remains_in_ledger_and_end_retries_release", "session_runtime::tests::input_stream_close_ends_session_and_releases_immediately", "quic_transport::tests::authenticated_input_stream_preserves_reliable_frame_order"]
     },
     {
       "id": "A22",

@@ -16,6 +16,23 @@ pub enum SessionRuntimeError {
     Injector(PortError),
 }
 
+pub const INPUT_LEASE_TIMEOUT_MS: u64 = 3_000;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionFault {
+    Injector(PortError),
+    ReleaseFailed(PortError),
+    LeaseExpired,
+    InputStreamClosed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionHealth {
+    pub active: bool,
+    pub highest_applied_sequence: u64,
+    pub last_fault: Option<SessionFault>,
+}
+
 pub fn receiver_mode_enabled(machine_role: &str, input_mode: &str) -> bool {
     machine_role == "client" && input_mode == "receive"
 }
@@ -27,6 +44,8 @@ pub struct ReceiverSessionRuntime<I> {
     input_gate: InputSessionGate,
     active_session: Option<SessionId>,
     highest_applied_sequence: u64,
+    last_activity_ms: Option<u64>,
+    last_fault: Option<SessionFault>,
     pressed: PressedState,
     injector: I,
 }
@@ -40,6 +59,8 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
             input_gate: InputSessionGate::new(local_boot),
             active_session: None,
             highest_applied_sequence: 0,
+            last_activity_ms: None,
+            last_fault: None,
             pressed: PressedState::default(),
             injector,
         }
@@ -49,6 +70,15 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
         &mut self,
         frame: &ControlFrame,
         peer: &AuthenticatedPeer,
+    ) -> Result<Option<ControlFrame>, SessionRuntimeError> {
+        self.handle_control_at(frame, peer, 0)
+    }
+
+    pub fn handle_control_at(
+        &mut self,
+        frame: &ControlFrame,
+        peer: &AuthenticatedPeer,
+        now_ms: u64,
     ) -> Result<Option<ControlFrame>, SessionRuntimeError> {
         if peer.role != PeerRole::Controller {
             return Err(SessionRuntimeError::WrongRole);
@@ -75,6 +105,7 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
             self.binding = Some(peer.clone());
             self.handshake = Some(handshake);
             self.highest_applied_sequence = 0;
+            self.last_activity_ms = None;
             return Ok(response);
         }
 
@@ -107,6 +138,8 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
                     .map_err(SessionRuntimeError::Protocol)?;
                 self.active_session = Some(*session_id);
                 self.highest_applied_sequence = 0;
+                self.last_activity_ms = Some(now_ms);
+                self.last_fault = None;
             } else if self.active_session != Some(*session_id) {
                 return Err(SessionRuntimeError::Protocol(ProtocolError::WrongSession));
             }
@@ -118,6 +151,7 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
                     .end(*session_id)
                     .map_err(SessionRuntimeError::Protocol)?;
                 self.active_session = None;
+                self.last_activity_ms = None;
             }
             self.release_pressed()?;
         }
@@ -129,6 +163,14 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
         {
             *highest_applied_sequence = self.highest_applied_sequence;
         }
+        if self.active_session.is_some()
+            && matches!(
+                frame,
+                ControlFrame::Ping { .. } | ControlFrame::Commit { .. }
+            )
+        {
+            self.last_activity_ms = Some(now_ms);
+        }
         Ok(response)
     }
 
@@ -136,6 +178,15 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
         &mut self,
         frame: &CriticalFrame,
         peer: &AuthenticatedPeer,
+    ) -> Result<(), SessionRuntimeError> {
+        self.handle_input_at(frame, peer, 0)
+    }
+
+    pub fn handle_input_at(
+        &mut self,
+        frame: &CriticalFrame,
+        peer: &AuthenticatedPeer,
+        now_ms: u64,
     ) -> Result<(), SessionRuntimeError> {
         if self.binding.as_ref() != Some(peer) || peer.role != PeerRole::Controller {
             return Err(SessionRuntimeError::WrongConnection);
@@ -153,12 +204,63 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
                 ) {
                     self.pressed = pressed_before;
                 }
+                self.last_fault = Some(SessionFault::Injector(error));
                 self.abort_after_injector_failure(frame.session_id);
                 return Err(SessionRuntimeError::Injector(error));
             }
         }
         self.highest_applied_sequence = frame.sequence;
+        self.last_activity_ms = Some(now_ms);
         Ok(())
+    }
+
+    pub fn expire_if_needed(&mut self, now_ms: u64) -> Result<bool, SessionRuntimeError> {
+        let (Some(session_id), Some(last_activity_ms)) =
+            (self.active_session, self.last_activity_ms)
+        else {
+            return Ok(false);
+        };
+        if now_ms.saturating_sub(last_activity_ms) < INPUT_LEASE_TIMEOUT_MS {
+            return Ok(false);
+        }
+        let _ = self.input_gate.end(session_id);
+        if let Some(handshake) = self.handshake.as_mut() {
+            let _ = handshake.abort_active(session_id);
+        }
+        self.active_session = None;
+        self.last_activity_ms = None;
+        self.last_fault = Some(SessionFault::LeaseExpired);
+        self.release_pressed()?;
+        Ok(true)
+    }
+
+    pub fn input_stream_closed(
+        &mut self,
+        peer: &AuthenticatedPeer,
+    ) -> Result<bool, SessionRuntimeError> {
+        if self.binding.as_ref() != Some(peer) {
+            return Ok(false);
+        }
+        let Some(session_id) = self.active_session else {
+            return Ok(false);
+        };
+        let _ = self.input_gate.end(session_id);
+        if let Some(handshake) = self.handshake.as_mut() {
+            let _ = handshake.abort_active(session_id);
+        }
+        self.active_session = None;
+        self.last_activity_ms = None;
+        self.last_fault = Some(SessionFault::InputStreamClosed);
+        self.release_pressed()?;
+        Ok(true)
+    }
+
+    pub fn health(&self) -> SessionHealth {
+        SessionHealth {
+            active: self.active_session.is_some(),
+            highest_applied_sequence: self.highest_applied_sequence,
+            last_fault: self.last_fault.clone(),
+        }
     }
 
     fn abort_after_injector_failure(&mut self, session_id: SessionId) {
@@ -167,6 +269,7 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
             let _ = handshake.abort_active(session_id);
         }
         self.active_session = None;
+        self.last_activity_ms = None;
         let _ = self.release_pressed();
     }
 
@@ -176,6 +279,7 @@ impl<I: InjectorPort> ReceiverSessionRuntime<I> {
         let mut first_error = None;
         for command in commands {
             if let Err(error) = submit_ready(&mut self.injector, command) {
+                self.last_fault = Some(SessionFault::ReleaseFailed(error));
                 first_error.get_or_insert(SessionRuntimeError::Injector(error));
             }
         }
@@ -545,5 +649,123 @@ mod tests {
             ),
             Err(SessionRuntimeError::Injector(PortError::PermissionDenied))
         );
+    }
+
+    #[test]
+    fn a18_lease_timeout_releases_pressed_input() {
+        let authenticated = peer(10);
+        let mut runtime = ReceiverSessionRuntime::new(boot(2), FakeInjector::default());
+        activate(&mut runtime, &authenticated);
+        runtime
+            .handle_input_at(
+                &CriticalFrame {
+                    session_id: session(),
+                    sequence: 1,
+                    event: CriticalEvent::Key {
+                        key_code: 65,
+                        scan_code: 30,
+                        extended: false,
+                        down: true,
+                    },
+                },
+                &authenticated,
+                100,
+            )
+            .unwrap();
+        assert!(!runtime.expire_if_needed(3_099).unwrap());
+        assert!(runtime.expire_if_needed(3_100).unwrap());
+        assert_eq!(
+            runtime.injector().events,
+            vec![
+                InputCommand::Key {
+                    key_code: 65,
+                    down: true,
+                },
+                InputCommand::Key {
+                    key_code: 65,
+                    down: false,
+                },
+            ]
+        );
+        assert_eq!(
+            runtime.health(),
+            SessionHealth {
+                active: false,
+                highest_applied_sequence: 1,
+                last_fault: Some(SessionFault::LeaseExpired),
+            }
+        );
+    }
+
+    #[test]
+    fn ping_refreshes_lease_and_release_failure_is_visible() {
+        let authenticated = peer(10);
+        let mut runtime = ReceiverSessionRuntime::new(boot(2), FakeInjector::default());
+        activate(&mut runtime, &authenticated);
+        runtime
+            .handle_input_at(
+                &CriticalFrame {
+                    session_id: session(),
+                    sequence: 1,
+                    event: CriticalEvent::Key {
+                        key_code: 65,
+                        scan_code: 30,
+                        extended: false,
+                        down: true,
+                    },
+                },
+                &authenticated,
+                100,
+            )
+            .unwrap();
+        runtime
+            .handle_control_at(
+                &ControlFrame::Ping {
+                    session_id: session(),
+                    sequence: 1,
+                },
+                &authenticated,
+                2_500,
+            )
+            .unwrap();
+        assert!(!runtime.expire_if_needed(5_499).unwrap());
+        runtime.injector_mut().submission_failed = true;
+        assert_eq!(
+            runtime.expire_if_needed(5_500),
+            Err(SessionRuntimeError::Injector(PortError::SubmissionFailed))
+        );
+        assert_eq!(
+            runtime.health().last_fault,
+            Some(SessionFault::ReleaseFailed(PortError::SubmissionFailed))
+        );
+    }
+
+    #[test]
+    fn input_stream_close_ends_session_and_releases_immediately() {
+        let authenticated = peer(10);
+        let mut runtime = ReceiverSessionRuntime::new(boot(2), FakeInjector::default());
+        activate(&mut runtime, &authenticated);
+        runtime
+            .handle_input(
+                &CriticalFrame {
+                    session_id: session(),
+                    sequence: 1,
+                    event: CriticalEvent::Key {
+                        key_code: 65,
+                        scan_code: 30,
+                        extended: false,
+                        down: true,
+                    },
+                },
+                &authenticated,
+            )
+            .unwrap();
+        assert!(runtime.input_stream_closed(&authenticated).unwrap());
+        assert_eq!(runtime.injector().events.len(), 2);
+        assert_eq!(
+            runtime.health().last_fault,
+            Some(SessionFault::InputStreamClosed)
+        );
+        assert!(!runtime.input_stream_closed(&authenticated).unwrap());
     }
 }

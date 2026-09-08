@@ -67,6 +67,7 @@ type ControlHandler =
 type OutboundControlHandler =
     Arc<dyn Fn(ControlFrame) -> Option<ControlFrame> + Send + Sync + 'static>;
 type InputHandler = Arc<dyn Fn(CriticalFrame, AuthenticatedPeer) -> bool + Send + Sync + 'static>;
+type InputClosedHandler = Arc<dyn Fn(AuthenticatedPeer, String) + Send + Sync + 'static>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PeerRole {
@@ -517,6 +518,7 @@ pub fn start(
     on_stream: StreamHandler,
     on_control: ControlHandler,
     on_input: InputHandler,
+    on_input_closed: InputClosedHandler,
 ) -> Result<TransportHandle, String> {
     // Load (or create-and-persist) this machine's transport identity *before*
     // spawning the runtime thread so a stable public key is reused across
@@ -554,6 +556,7 @@ pub fn start(
                 on_stream,
                 on_control,
                 on_input,
+                on_input_closed,
                 loop_health,
                 ready_tx,
             ));
@@ -596,6 +599,7 @@ async fn run_transport(
     on_stream: StreamHandler,
     on_control: ControlHandler,
     on_input: InputHandler,
+    on_input_closed: InputClosedHandler,
     health: HealthMap,
     ready_tx: mpsc::Sender<Result<ReadyTransport, String>>,
 ) {
@@ -623,6 +627,7 @@ async fn run_transport(
         on_stream,
         on_control,
         on_input,
+        on_input_closed,
     );
 
     // The command loop must never await network progress: one dead peer's 2s
@@ -1080,6 +1085,7 @@ fn spawn_accept_loop(
     on_stream: StreamHandler,
     on_control: ControlHandler,
     on_input: InputHandler,
+    on_input_closed: InputClosedHandler,
 ) {
     let generations = Arc::new(AtomicU64::new(1));
     tokio::spawn(async move {
@@ -1089,6 +1095,7 @@ fn spawn_accept_loop(
             let on_stream = Arc::clone(&on_stream);
             let on_control = Arc::clone(&on_control);
             let on_input = Arc::clone(&on_input);
+            let on_input_closed = Arc::clone(&on_input_closed);
             let trust_store = trust_store.clone();
             let generation = generations.fetch_add(1, Ordering::Relaxed);
 
@@ -1103,7 +1110,14 @@ fn spawn_accept_loop(
                                 on_datagram,
                             );
                         }
-                        spawn_stream_reader(connection, peer, on_stream, on_control, on_input);
+                        spawn_stream_reader(
+                            connection,
+                            peer,
+                            on_stream,
+                            on_control,
+                            on_input,
+                            on_input_closed,
+                        );
                     }
                     Err(error) => {
                         log::warn!("QUIC incoming connection failed from {remote}: {error}");
@@ -1162,6 +1176,7 @@ fn spawn_stream_reader(
     on_stream: StreamHandler,
     on_control: ControlHandler,
     on_input: InputHandler,
+    on_input_closed: InputClosedHandler,
 ) {
     let control_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let input_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1172,6 +1187,7 @@ fn spawn_stream_reader(
                     let on_stream = Arc::clone(&on_stream);
                     let on_control = Arc::clone(&on_control);
                     let on_input = Arc::clone(&on_input);
+                    let on_input_closed = Arc::clone(&on_input_closed);
                     let peer = peer.clone();
                     let connection = connection.clone();
                     let control_active = Arc::clone(&control_active);
@@ -1216,9 +1232,19 @@ fn spawn_stream_reader(
                                 let _ = send.finish();
                                 return;
                             }
-                            let outcome =
-                                run_inbound_input_stream(&mut recv, authenticated, on_input).await;
+                            let outcome = run_inbound_input_stream(
+                                &mut recv,
+                                authenticated.clone(),
+                                on_input,
+                            )
+                            .await;
                             input_active.store(false, Ordering::Release);
+                            let reason = outcome
+                                .as_ref()
+                                .err()
+                                .cloned()
+                                .unwrap_or_else(|| "critical input stream closed".into());
+                            on_input_closed(authenticated, reason);
                             if let Err(error) = outcome {
                                 log::warn!("QUIC inbound critical input stopped: {error}");
                             }
@@ -1923,6 +1949,7 @@ mod tests {
             }),
             Arc::new(|_, _| None),
             Arc::new(|_, _| false),
+            Arc::new(|_, _| {}),
         )
         .unwrap();
         let controller = start(
@@ -1939,6 +1966,7 @@ mod tests {
             Arc::new(|_, _| false),
             Arc::new(|_, _| None),
             Arc::new(|_, _| false),
+            Arc::new(|_, _| {}),
         )
         .unwrap();
 
@@ -1988,6 +2016,7 @@ mod tests {
             Arc::new(|_, _| false),
             Arc::new(|_, _| None),
             Arc::new(|_, _| false),
+            Arc::new(|_, _| {}),
         )
         .unwrap();
         let controller = start(
@@ -1998,6 +2027,7 @@ mod tests {
             Arc::new(|_, _| false),
             Arc::new(|_, _| None),
             Arc::new(|_, _| false),
+            Arc::new(|_, _| {}),
         )
         .unwrap();
         let peer = controller.peer(
@@ -2064,6 +2094,7 @@ mod tests {
                     .flatten()
             }),
             Arc::new(|_, _| false),
+            Arc::new(|_, _| {}),
         )
         .unwrap();
         let controller = start(
@@ -2080,6 +2111,7 @@ mod tests {
             Arc::new(|_, _| false),
             Arc::new(|_, _| None),
             Arc::new(|_, _| false),
+            Arc::new(|_, _| {}),
         )
         .unwrap();
         let peer = controller
@@ -2181,6 +2213,7 @@ mod tests {
             .unwrap()
             .port();
         let (input_tx, input_rx) = mpsc::channel();
+        let (closed_tx, closed_rx) = mpsc::channel();
         let receiver = start(
             port,
             receiver_dir,
@@ -2195,6 +2228,9 @@ mod tests {
             Arc::new(|_, _| false),
             Arc::new(|_, _| None),
             Arc::new(move |frame, peer| input_tx.send((frame, peer)).is_ok()),
+            Arc::new(move |peer, reason| {
+                let _ = closed_tx.send((peer, reason));
+            }),
         )
         .unwrap();
         let controller = start(
@@ -2211,6 +2247,7 @@ mod tests {
             Arc::new(|_, _| false),
             Arc::new(|_, _| None),
             Arc::new(|_, _| false),
+            Arc::new(|_, _| {}),
         )
         .unwrap();
         let peer = controller
@@ -2248,6 +2285,9 @@ mod tests {
             assert_eq!(peer.role, PeerRole::Controller);
         }
         drop(input);
+        let (closed_peer, reason) = closed_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(closed_peer.peer_id, "controller-a");
+        assert!(reason.contains("closed"));
         controller.shutdown();
         receiver.shutdown();
         let _ = fs::remove_dir_all(root);

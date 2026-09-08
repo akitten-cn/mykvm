@@ -72,8 +72,8 @@ test('T05.a: legacy LAN paths cannot activate before V2 authentication exists', 
   }
 })
 
-test('T04.b2: native V2 injection stays closed until reliable release exists', () => {
-  assert.match(read('src-tauri/src/fork_policy.rs'), /V2_NATIVE_RECEIVER_ENABLED: bool = false/)
+test('T07: native input is enabled only on the authenticated V2 path', () => {
+  assert.match(read('src-tauri/src/fork_policy.rs'), /V2_NATIVE_RECEIVER_ENABLED: bool = true/)
   const lib = read('src-tauri/src/lib.rs')
   assert.match(lib, /V2_NATIVE_RECEIVER_ENABLED[\s\S]*?receiver_mode_enabled/)
 })

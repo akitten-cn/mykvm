@@ -259,7 +259,7 @@
       "review": "pending",
       "verification": {
         "automated": "pass",
-        "scope": "T04.b1 adapter tests and T04.b2 AppRuntime/native receiver compile pass. Native activation remains fail-closed until T07; controller routing/hotkey wiring remains T04.b3."
+        "scope": "T04.b1 adapter and T04.b2 AppRuntime/native receiver pass; T07 has since opened native V2 receive safely. Controller routing/hotkey wiring remains T04.b3."
       },
       "subtasks": [
         {
@@ -281,7 +281,7 @@
             "automated": "pass",
             "mac_build": "pass",
             "mac_runtime": "not_run",
-            "scope": "V2-only listener and authenticated callbacks compile in AppRuntime; NativeInjector reads permission without prompting. Compile-time safety gate stays false until T07 release ledger."
+            "scope": "V2-only listener and authenticated callbacks compile in AppRuntime; NativeInjector reads permission without prompting. T07 later supplied release safety and opened the gate."
           }
         },
         {
@@ -477,18 +477,19 @@
       "review_focus": [
         "仅清集合不算释放；OS调用返回不等于应用动作执行成功"
       ],
-    "implementation": "in_progress",
-    "review": "pending",
+      "implementation": "done",
+      "review": "approved",
       "verification": {
-        "automated": "not_run",
-        "mac_build": "not_run",
+        "automated": "pass",
+        "mac_build": "pass",
         "mac_runtime": "not_run",
         "windows_build": "not_run",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
     "evidence": [
-      "../T07a-pressed-state.md"
+      "../T07a-pressed-state.md",
+      "../T07b-lease-health.md"
     ],
     "blocked_reason": null,
     "subtasks": [
@@ -505,8 +506,12 @@
       {
         "id": "T07.b",
         "title": "断线租约、健康超时与释放失败可见性",
-        "implementation": "todo",
-        "review": "pending"
+        "implementation": "done",
+        "review": "approved",
+        "verification": {
+          "automated": "pass",
+          "scope": "FakeClock lease expiry, Ping refresh, release-failure health, session stream-close cleanup and real QUIC close callback tests pass."
+        }
       }
     ]
     },
