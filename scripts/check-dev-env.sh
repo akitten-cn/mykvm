@@ -37,7 +37,7 @@ check "clang" xcrun clang --version
 section "Hint"
 printf "If Xcode tools are missing, run: xcode-select --install\n"
 printf "Then run: npm install && npm run tauri:dev\n"
-printf "Native input capture/injection is still stubbed. When enabled, macOS will also need Accessibility/Input Monitoring permissions.\n"
+printf "Native input tests do not operate the desktop. Running the app on macOS requires user-granted Accessibility/Input Monitoring permissions.\n"
 
 if [ "$failures" -gt 0 ]; then
   printf "\nEnvironment is not ready: %s check(s) failed.\n" "$failures"

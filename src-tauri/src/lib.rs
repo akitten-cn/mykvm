@@ -4288,15 +4288,15 @@ fn default_runtime(layout: &LayoutState) -> RuntimeStatus {
     RuntimeStatus {
         started: false,
         transport: NativeStageStatus {
-            state: "stubbed".into(),
+            state: "idle".into(),
             detail: "Runtime is stopped. Start it to enable LAN discovery and shared input.".into(),
         },
         capture: NativeStageStatus {
-            state: "stubbed".into(),
+            state: "idle".into(),
             detail: input::stopped_capture_status().detail,
         },
         inject: NativeStageStatus {
-            state: "stubbed".into(),
+            state: "idle".into(),
             detail: input::stopped_inject_status().detail,
         },
         clipboard: if layout.clipboard_sync {

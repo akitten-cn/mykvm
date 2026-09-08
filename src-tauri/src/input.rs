@@ -379,14 +379,14 @@ enum InputControlCommand {
 
 pub fn stopped_capture_status() -> NativeStageStatus {
     NativeStageStatus {
-        state: "stubbed".into(),
+        state: "idle".into(),
         detail: "Input sharing is stopped.".into(),
     }
 }
 
 pub fn stopped_inject_status() -> NativeStageStatus {
     NativeStageStatus {
-        state: "stubbed".into(),
+        state: "idle".into(),
         detail: "Input injection is stopped.".into(),
     }
 }
@@ -1603,7 +1603,7 @@ fn receive_only_status() -> NativeStageStatus {
 
 fn unsupported_capture_status() -> NativeStageStatus {
     NativeStageStatus {
-        state: "stubbed".into(),
+        state: "error".into(),
         detail: "Global input capture is not implemented on this platform.".into(),
     }
 }
