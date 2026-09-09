@@ -913,6 +913,13 @@ pub fn start_v2_controller_runtime(
     control_hotkey_deduper: Arc<crate::game_mode::HotkeyDeduper>,
     local_override: Arc<crate::routing::LocalOverride>,
 ) -> (NativeStageStatus, NativeStageStatus) {
+    // A controller runtime must always start locally. This also clears any
+    // route left by an interrupted/restarted session before Windows installs
+    // its global hooks, so unrelated tools such as remote-desktop clients keep
+    // receiving physical input and clipboard changes while MyKVM is idle.
+    local_override.request_local();
+    remote_active.store(false, Ordering::Release);
+    clear_clipboard_target(&clipboard_target);
     let targets = build_input_targets(&layout, &native_layout);
     let capture = start_input_capture(
         targets,
