@@ -155,3 +155,8 @@ macOS/Unix 在进程入口用用户临时目录中的 0600 Unix socket 取得唯
 用户在 Windows 服务端向 `192.168.3.17:47833` 添加 Mac 客户端时未收到响应。实际调用链为前端添加设备 → `probe_lan_peer` → `probe_for_peer`，通过 UDP 向显式 47833 发送 discovery probe。接收端必须由 `AppRuntime::start_discovery` 绑定发现 socket。
 
 0.1.0 的该函数在 `LEGACY_LAN_DATA_ENABLED=false` 分支启动 QUIC 后直接返回，导致安全发现与配对监听被一并关闭。修复 `08171ae78c7901ad98bcbb9d1e0885ff6cdef12d` 仅移除这次提前返回；旧 `start_input`、`start_clipboard`、剪贴板/文件 packet handler 与文件发送仍由禁用常量失败关闭。隔离断言和显式地址 UDP 回环通过，0.1.1 的 Mac/Windows 原生构建通过。真实双机配对仍需重试。
+
+
+## T27 QUIC 预热与 RustDesk 共存
+
+0.1.1 的认证空 QUIC 预热 datagram 被错误交给 motion 解码，产生 `InvalidLength` 并覆盖权限状态；修复 SHA `084a2b3e82f1b386c8bcd646d9a4361a31c6582e` 对空预热包静默处理，非空坏包仍拒绝。Windows 返回本地未清除剪贴板目标，修复 SHA `73990b1c2f2edf00e9ab71b1dc753eaf999d83f0` 改为同时释放。完整本机检查通过 227 个 Rust 库测试、24 个隔离测试；[Actions run 34353184370](https://github.com/akitten-cn/mykvm/actions/runs/34353184370) 的 macOS 14 与 Windows Server 2022 job 均通过。0.1.2 Windows NSIS SHA-256 为 `704fbdb6eca1bf4aad60d0cdaccefacd2b420368c97de7e1ab7169cc490af0fd`。真实双机与 RustDesk 切换待安装后复测。

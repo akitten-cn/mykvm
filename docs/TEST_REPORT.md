@@ -41,7 +41,7 @@ SHA `c1ae061e4384392e796378a4b0d3dc931dc09549` 增加原生 Windows PowerShell N
 
 ## T24 资源采样工具
 
-SHA `139cf4644a1261896460ac4d86bfe45cf884dfb1` 增加只观察既有 PID 的 Mac 资源采样器；23 个隔离测试及其余完整适用检查通过。采样器 smoke test 对 shell PID 运行约 2 秒，证明输出格式和 top 字段可采集，不能替代 MyKVM M07。为遵守桌面安全边界没有启动 app，M07 保持 `not_run`；W05/L04 只有可复现方法，保持 `optional_not_run`。
+SHA `139cf4644a1261896460ac4d86bfe45cf884dfb1` 增加只观察既有 PID 的 Mac 资源采样器；24 个隔离测试及其余完整适用检查通过。采样器 smoke test 对 shell PID 运行约 2 秒，证明输出格式和 top 字段可采集，不能替代 MyKVM M07。为遵守桌面安全边界没有启动 app，M07 保持 `not_run`；W05/L04 只有可复现方法，保持 `optional_not_run`。
 
 纯核心通过不等于 A01–A04 等端到端用例通过；这些用例保留 not_run 并记录部分证据。认证正反测试、协议回环、真实 Windows 分支编译、可靠释放集成、资源数据均尚未完成。详见 taskboard、testcases 和 SOURCE_AUDIT。
 
@@ -241,3 +241,8 @@ A43 为 `save_layout` 增加 2 MiB 总输入上限、枚举/设备数/屏幕尺�
 ## T26 发现与配对回归
 
 旧代码的隔离测试确认 `start_discovery` 在绑定 socket 前提前 `return Ok(())`，因此 0.1.0 Mac 客户端不能响应 Windows 的 UDP 47833 探测。修复后定向 UDP 测试在回环地址接收显式 probe、解码并回送 announce，调用端取得目标 peer；完整检查为 226 passed、0 failed、23 项隔离检查通过。0.1.1 Mac 原生构建与 DMG 校验通过。GitHub Actions [run 34349252256](https://github.com/akitten-cn/mykvm/actions/runs/34349252256) 的 macOS 14 和 Windows Server 2022 job 均通过，Windows job 构建的 NSIS SHA-256 为 `138d26948931a8f4dedd2ec46fc9ccc20f4e1eda96a69a7edb2b1ebaecf563c7`；[Linux CI run 34349252180](https://github.com/akitten-cn/mykvm/actions/runs/34349252180) 也通过。未启动 Mac app，也未在物理 Windows 与 `192.168.3.17` 间重跑配对。
+
+
+## T27 QUIC 预热与 RustDesk 共存
+
+0.1.1 的认证空 QUIC 预热 datagram 被错误交给 motion 解码，产生 `InvalidLength` 并覆盖权限状态；修复 SHA `084a2b3e82f1b386c8bcd646d9a4361a31c6582e` 对空预热包静默处理，非空坏包仍拒绝。Windows 返回本地未清除剪贴板目标，修复 SHA `73990b1c2f2edf00e9ab71b1dc753eaf999d83f0` 改为同时释放。完整本机检查通过 227 个 Rust 库测试、24 个隔离测试；[Actions run 34353184370](https://github.com/akitten-cn/mykvm/actions/runs/34353184370) 的 macOS 14 与 Windows Server 2022 job 均通过。0.1.2 Windows NSIS SHA-256 为 `704fbdb6eca1bf4aad60d0cdaccefacd2b420368c97de7e1ab7169cc490af0fd`。真实双机与 RustDesk 切换待安装后复测。

@@ -38,7 +38,7 @@
 |T17|完成|Rust 后台独立于设置 WebView；按需创建/销毁窗口、Mac/Unix 单实例唤起、显式普通用户自启和中文菜单栏|
 |T18|完成|菜单栏紧急返回与暂停；主要 IPC 边界验证；诊断导出和输入日志脱敏；中英文键集合自动核对|
 |T19|完成|test-only 双身份真实 QUIC 回环；FakeInjector 覆盖可靠输入、motion 乱序、旧 session、断流释放和租约释放|
-|T20|完成|226 个 Rust 测试、23 个隔离测试及前端/Mac 库检查通过；线程、锁、预算、授权、释放和配置迁移审查完成；严格全仓 fmt/clippy 基线债务留档|
+|T20|完成|227 个 Rust 测试、24 个隔离测试及前端/Mac 库检查通过；线程、锁、预算、授权、释放和配置迁移审查完成；严格全仓 fmt/clippy 基线债务留档|
 |T21|完成|GitHub Actions 的 macOS 14 与 Windows Server 2022 原生检查均已实际通过|
 |T22|完成|真实 ARM64 app 与 DMG 已生成并校验；无 Developer ID/公证，未安装或启动|
 |T23|完成|Windows 2022 CI 已生成无签名 NSIS 与 SHA-256 artifact；Windows build 为 pass|
@@ -58,4 +58,9 @@ T09 当前实现 SHA：`9aed9a81aa928ad67ba2bf298d49b63027b44dd6`。提交后检
 
 ## T26 发现与配对响应修复
 
-用户报告 Windows 服务端向 `192.168.3.17:47833` 添加 Mac 客户端时没有响应。修复 SHA `08171ae78c7901ad98bcbb9d1e0885ff6cdef12d` 让禁用旧数据通道后的启动流程继续绑定 UDP 发现 socket；旧输入、剪贴板和文件数据入口仍关闭。测试先复现提前返回，再以显式地址 UDP 回环验证 probe/announce。完整本机检查通过 226 个 Rust 库测试和 23 个隔离测试。版本 `0.1.1` 的 Mac ARM64 DMG 已生成并校验；SHA `1bb798647cdaf3eec9873db07896a153bb5d4c14` 的 macOS 14、Windows Server 2022 和 Linux CI 均通过，Windows NSIS 已下载核验。真实 `192.168.3.17` 双机重试尚未运行，保持 `optional_not_run`。
+用户报告 Windows 服务端向 `192.168.3.17:47833` 添加 Mac 客户端时没有响应。修复 SHA `08171ae78c7901ad98bcbb9d1e0885ff6cdef12d` 让禁用旧数据通道后的启动流程继续绑定 UDP 发现 socket；旧输入、剪贴板和文件数据入口仍关闭。测试先复现提前返回，再以显式地址 UDP 回环验证 probe/announce。完整本机检查通过 227 个 Rust 库测试和 24 个隔离测试。版本 `0.1.1` 的 Mac ARM64 DMG 已生成并校验；SHA `1bb798647cdaf3eec9873db07896a153bb5d4c14` 的 macOS 14、Windows Server 2022 和 Linux CI 均通过，Windows NSIS 已下载核验。真实 `192.168.3.17` 双机重试尚未运行，保持 `optional_not_run`。
+
+
+## T27 QUIC 预热与 RustDesk 共存
+
+0.1.1 的认证空 QUIC 预热 datagram 被错误交给 motion 解码，产生 `InvalidLength` 并覆盖权限状态；修复 SHA `084a2b3e82f1b386c8bcd646d9a4361a31c6582e` 对空预热包静默处理，非空坏包仍拒绝。Windows 返回本地未清除剪贴板目标，修复 SHA `73990b1c2f2edf00e9ab71b1dc753eaf999d83f0` 改为同时释放。完整本机检查通过 227 个 Rust 库测试、24 个隔离测试；[Actions run 34353184370](https://github.com/akitten-cn/mykvm/actions/runs/34353184370) 的 macOS 14 与 Windows Server 2022 job 均通过。0.1.2 Windows NSIS SHA-256 为 `704fbdb6eca1bf4aad60d0cdaccefacd2b420368c97de7e1ab7169cc490af0fd`。真实双机与 RustDesk 切换待安装后复测。

@@ -13,8 +13,8 @@
 
 ## 验证结果
 
-- 226 个 Rust 库测试通过，0 failed/ignored。
-- 23 个隔离与安全脚本测试通过，前端 lint/build、核心文件格式检查和 Mac `cargo check --locked --lib` 通过。
+- 227 个 Rust 库测试通过，0 failed/ignored。
+- 24 个隔离与安全脚本测试通过，前端 lint/build、核心文件格式检查和 Mac `cargo check --locked --lib` 通过。
 - W01 Windows 原生编译及非交互测试为 `pass`；Mac 运行 5 项为 `not_run`，Windows/LOL 实机仍为 `optional_not_run`。
 - 严格全仓 fmt 仍因已有格式差异失败；严格 Clippy 仍有 99 项跨平台 dead-code、旧 C 字符串、参数数量等基线诊断。详情见 `docs/T20-regression-review.md`。
 
@@ -23,10 +23,10 @@
 ## Mac ARM64 产物
 
 - App：`src-tauri/target/aarch64-apple-darwin/release/bundle/macos/MyKVM Local.app`
-- DMG：`src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/MyKVM Local_0.1.1_aarch64.dmg`
-- DMG SHA-256：`fc7b7547beaa2cabcef2f656714ee083eb8144659aaebe2f4019366f3efd3ccf`
-- 主程序 SHA-256：`86fd805c5b47546e366567ea42a3f80cfeca54c2d5f3f9d1978142b8db8c65a0`
-- 架构/版本/标识：Mach-O arm64，`0.1.1`，`local.mykvm.gaming`
+- DMG：`src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/MyKVM Local_0.1.2_aarch64.dmg`
+- DMG SHA-256：`ceed9d80feab6bbadf40d94808b177190fe762211381424e9f7cf999b844fa42`
+- 主程序 SHA-256：`887da53486f7212d1f566921abec9b3a31caba9407b599acd737087859657135`
+- 架构/版本/标识：Mach-O arm64，`0.1.2`，`local.mykvm.gaming`
 
 `hdiutil verify` 已确认 DMG 有效。构建使用 `--no-sign`；主程序只有链接器 ad hoc 标记，app bundle 没有完整 Developer ID 签名或公证，严格 codesign 校验失败。校验命令：
 
@@ -42,10 +42,10 @@ Mac 端选择接收角色并只授予所需辅助功能权限；Windows 端安�
 
 ## Windows x64 产物
 
-- 本地安装包：`artifacts/windows/1bb798647cdaf3eec9873db07896a153bb5d4c14/MyKVM Local_0.1.1_x64-setup.exe`
-- SHA-256：`138d26948931a8f4dedd2ec46fc9ccc20f4e1eda96a69a7edb2b1ebaecf563c7`
-- GitHub artifact：`windows-preview-1bb798647cdaf3eec9873db07896a153bb5d4c14`
-- CI：[Actions run 34349252256](https://github.com/akitten-cn/mykvm/actions/runs/34349252256)
+- 本地安装包：`artifacts/windows/73990b1c2f2edf00e9ab71b1dc753eaf999d83f0/MyKVM Local_0.1.2_x64-setup.exe`
+- SHA-256：`704fbdb6eca1bf4aad60d0cdaccefacd2b420368c97de7e1ab7169cc490af0fd`
+- GitHub artifact：`windows-preview-73990b1c2f2edf00e9ab71b1dc753eaf999d83f0`
+- CI：[Actions run 34353184370](https://github.com/akitten-cn/mykvm/actions/runs/34353184370)
 
 Windows Server 2022 runner 通过原生检查和 226 个库测试后生成该 NSIS 安装器。它未签名，尚未在物理 Windows 主机安装或启动。
 

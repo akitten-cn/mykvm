@@ -24,7 +24,7 @@ MyKVM Local 基于开源项目 [XxMinor/mykvm](https://github.com/XxMinor/mykvm)
 
 |范围|状态|
 |---|---|
-|自动化测试|226 个 Rust 测试和 23 个隔离测试通过|
+|自动化测试|227 个 Rust 测试和 24 个隔离测试通过|
 |Mac 构建|ARM64 app 与 DMG 已生成并校验|
 |Mac 运行|未运行，没有修改辅助功能或 TCC|
 |Windows 构建|Windows Server 2022 CI 已通过，已生成无签名 x64 NSIS 安装包|
@@ -71,7 +71,7 @@ Windows 产物写入 `src-tauri\target\release\bundle\nsis\`，同目录生成 `
 
 `.github/workflows/native-preview.yml` 在 macOS 14 与 Windows Server 2022 上运行非交互检查。Windows job 还会构建无签名 NSIS，并把它以 `windows-preview-<提交 SHA>` 名称保留 7 天。工作流只有仓库只读权限，不创建 GitHub Release。
 
-已修复发现响应的提交 [`1bb7986`](https://github.com/akitten-cn/mykvm/commit/1bb798647cdaf3eec9873db07896a153bb5d4c14) 产物位于 [GitHub Actions 运行 34349252256](https://github.com/akitten-cn/mykvm/actions/runs/34349252256)，artifact 名为 `windows-preview-1bb798647cdaf3eec9873db07896a153bb5d4c14`。其中 `MyKVM Local_0.1.1_x64-setup.exe` 的 SHA-256 是 `138d26948931a8f4dedd2ec46fc9ccc20f4e1eda96a69a7edb2b1ebaecf563c7`。这是无签名预览；Windows 物理键鼠和双机运行仍未验证。
+已修复发现响应的提交 [`73990b1`](https://github.com/akitten-cn/mykvm/commit/73990b1c2f2edf00e9ab71b1dc753eaf999d83f0) 产物位于 [GitHub Actions 运行 34353184370](https://github.com/akitten-cn/mykvm/actions/runs/34353184370)，artifact 名为 `windows-preview-73990b1c2f2edf00e9ab71b1dc753eaf999d83f0`。其中 `MyKVM Local_0.1.2_x64-setup.exe` 的 SHA-256 是 `704fbdb6eca1bf4aad60d0cdaccefacd2b420368c97de7e1ab7169cc490af0fd`。这是无签名预览；Windows 物理键鼠和双机运行仍未验证。
 
 ## 首次受控试用
 
@@ -81,7 +81,7 @@ Mac 注入输入需要辅助功能权限。本仓库不会自动关闭 Gatekeepe
 
 ### 添加设备没有响应
 
-请确认两端都使用 0.1.1 或更新版本；0.1.0 有一个已知缺陷，会使 Mac 客户端不监听发现请求。Windows 应选择“服务端”，Mac 应选择“客户端”。手动地址填写 Mac 的 `IP:47833`，该 UDP 端口用于发现和发起配对；认证 QUIC 通常使用客户端公布的下一个端口（默认 `47834`），无需在“添加设备”中填写。若 0.1.1 仍无响应，再检查两台设备是否在同一局域网，以及 macOS/Windows 防火墙是否允许 MyKVM Local 的入站 UDP。
+请确认两端都使用 0.1.2 或更新版本；0.1.0 有一个已知缺陷，会使 Mac 客户端不监听发现请求。Windows 应选择“服务端”，Mac 应选择“客户端”。手动地址填写 Mac 的 `IP:47833`，该 UDP 端口用于发现和发起配对；认证 QUIC 通常使用客户端公布的下一个端口（默认 `47834`），无需在“添加设备”中填写。若 0.1.2 仍无响应，再检查两台设备是否在同一局域网，以及 macOS/Windows 防火墙是否允许 MyKVM Local 的入站 UDP。
 
 ## 文档
 
@@ -92,8 +92,16 @@ Mac 注入输入需要辅助功能权限。本仓库不会自动关闭 Gatekeepe
 - [Mac 预览构建证据](./docs/T22-mac-preview.md)
 - [Windows 预览流水线](./docs/T23-windows-preview.md)
 - [发现与配对响应修复](./docs/T26-discovery-pairing-fix.md)
+- [QUIC 预热、权限与 RustDesk 共存修复](./docs/T27-warmup-permission-rustdesk-fix.md)
 - [资源验证方法](./docs/T24-resource-validation.md)
 
 ## 许可证与署名
 
 本项目保留原项目的版权与署名，派生自 [XxMinor/mykvm](https://github.com/XxMinor/mykvm)，按 [MIT License](./LICENSE) 发布。MyKVM Local 是独立 fork，不代表上游官方版本。
+
+
+### 辅助功能与 RustDesk
+
+无签名预览每次重新构建都会产生新的 ad-hoc 代码身份。升级 Mac app 后，即使“辅助功能”中的旧开关仍显示开启，也应删除旧 MyKVM Local 条目，再从 `/Applications` 重新添加并启用，然后完全退出并重开应用。
+
+MyKVM 进入“控制 Mac”后会独占 Windows 物理键鼠。切回 RustDesk 前先执行“返回 Windows”或“紧急返回”，也可从托盘暂停 MyKVM；0.1.2 会在返回时同时释放 MyKVM 剪贴板目标。使用 RustDesk 时开启游戏模式可关闭贴边切换，避免意外再次进入 MyKVM 会话。

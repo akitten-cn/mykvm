@@ -1636,6 +1636,51 @@
         "GitHub Actions run https://github.com/akitten-cn/mykvm/actions/runs/34349252256"
       ],
       "blocked_reason": null
+    },
+    {
+      "id": "T27",
+      "phase": "P4",
+      "title": "修复 QUIC 预热误报与 RustDesk 返回清理",
+      "depends_on": [
+        "T26"
+      ],
+      "paths": [
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/input.rs",
+        "scripts/fork-isolation.test.mjs",
+        "docs/T27-warmup-permission-rustdesk-fix.md"
+      ],
+      "actions": [
+        "把认证空 datagram 识别为连接预热，不写 motion 错误。",
+        "Windows V2 返回本地时同时清除剪贴板目标。",
+        "核验 ad-hoc 签名权限边界并记录 RustDesk 共存方式。"
+      ],
+      "test_ids": [],
+      "deliverables": [
+        "0.1.2 Mac DMG",
+        "0.1.2 Windows NSIS",
+        "辅助功能重新授权与 RustDesk 共存说明"
+      ],
+      "review_focus": [
+        "非空坏 motion 仍失败关闭；不自动修改 TCC；远端会话独占输入的边界明确。"
+      ],
+      "implementation": "done",
+      "review": "approved",
+      "verification": {
+        "automated": "pass",
+        "mac_build": "pass",
+        "mac_runtime": "observed_existing_app_only",
+        "windows_build": "pass",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [
+        "../T27-warmup-permission-rustdesk-fix.md",
+        "motion fix SHA 084a2b3e82f1b386c8bcd646d9a4361a31c6582e",
+        "clipboard fix/build SHA 73990b1c2f2edf00e9ab71b1dc753eaf999d83f0",
+        "GitHub Actions run https://github.com/akitten-cn/mykvm/actions/runs/34353184370"
+      ],
+      "blocked_reason": null
     }
   ]
 }

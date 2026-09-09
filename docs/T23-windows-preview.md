@@ -18,3 +18,8 @@
 ## 0.1.1 发现响应修复构建
 
 提交 `1bb798647cdaf3eec9873db07896a153bb5d4c14` 在 [Actions run 34349252256](https://github.com/akitten-cn/mykvm/actions/runs/34349252256) 上再次通过 macOS 14 与 Windows Server 2022 原生检查。Windows job 通过 226 个库测试并生成 `MyKVM Local_0.1.1_x64-setup.exe`（3,742,150 bytes），SHA-256 为 `138d26948931a8f4dedd2ec46fc9ccc20f4e1eda96a69a7edb2b1ebaecf563c7`；下载后的本地散列与 runner 的 `SHA256SUMS` 一致。artifact 为 `windows-preview-1bb798647cdaf3eec9873db07896a153bb5d4c14`，本地路径为 `artifacts/windows/1bb798647cdaf3eec9873db07896a153bb5d4c14/MyKVM Local_0.1.1_x64-setup.exe`。
+
+
+## T27 QUIC 预热与 RustDesk 共存
+
+0.1.1 的认证空 QUIC 预热 datagram 被错误交给 motion 解码，产生 `InvalidLength` 并覆盖权限状态；修复 SHA `084a2b3e82f1b386c8bcd646d9a4361a31c6582e` 对空预热包静默处理，非空坏包仍拒绝。Windows 返回本地未清除剪贴板目标，修复 SHA `73990b1c2f2edf00e9ab71b1dc753eaf999d83f0` 改为同时释放。完整本机检查通过 227 个 Rust 库测试、24 个隔离测试；[Actions run 34353184370](https://github.com/akitten-cn/mykvm/actions/runs/34353184370) 的 macOS 14 与 Windows Server 2022 job 均通过。0.1.2 Windows NSIS SHA-256 为 `704fbdb6eca1bf4aad60d0cdaccefacd2b420368c97de7e1ab7169cc490af0fd`。真实双机与 RustDesk 切换待安装后复测。
