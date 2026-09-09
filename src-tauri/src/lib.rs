@@ -878,8 +878,8 @@ impl AppRuntime {
                 let Some(display_layouts) = display_layouts else {
                     return;
                 };
-                match protocol_v2::decode_motion(&payload) {
-                    Ok(frame) => {
+                match decode_v2_motion_datagram(&payload) {
+                    Ok(Some(frame)) => {
                         let result = receiver_for_motion.lock().map(|mut receiver| {
                             receiver.update_display_layouts(display_layouts)?;
                             receiver.handle_motion_at(
@@ -909,6 +909,7 @@ impl AppRuntime {
                         }
                         return;
                     }
+                    Ok(None) => return,
                     Err(error) if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED => {
                         if let Ok(mut fault) = fault_for_motion.lock() {
                             *fault = Some(format!("V2 motion decode rejected: {error:?}"));
@@ -7587,6 +7588,15 @@ fn warm_quic_peer(transport: &quic_transport::TransportHandle, peer: &LanPeer) {
     let _ = transport.send_datagram(endpoint, Vec::new());
 }
 
+fn decode_v2_motion_datagram(
+    payload: &[u8],
+) -> Result<Option<protocol_v2::MotionFrame>, protocol_v2::ProtocolError> {
+    if payload.is_empty() {
+        return Ok(None);
+    }
+    protocol_v2::decode_motion(payload).map(Some)
+}
+
 fn pairing_required(layout: &LayoutState) -> bool {
     layout.machine_role == "client" && layout.paired_controllers.is_empty()
 }
@@ -10200,6 +10210,12 @@ mod tests {
         response.join().expect("join discovery responder");
         assert_eq!(discovered.id, expected_peer.id);
         assert_eq!(discovered.ip, "127.0.0.1");
+    }
+
+    #[test]
+    fn authenticated_empty_datagram_is_treated_as_transport_warmup() {
+        assert_eq!(decode_v2_motion_datagram(&[]), Ok(None));
+        assert!(decode_v2_motion_datagram(&[0]).is_err());
     }
 
     #[test]
