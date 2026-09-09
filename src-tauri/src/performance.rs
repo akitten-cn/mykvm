@@ -196,15 +196,7 @@ fn parse_process_metrics(output: &str) -> Result<(f64, f64), String> {
         .collect::<Vec<_>>();
 
     if values.len() >= 2 {
-        Ok((
-            values[0],
-            values[1]
-                / if cfg!(target_os = "windows") {
-                    1.0
-                } else {
-                    1024.0
-                },
-        ))
+        Ok((values[0], values[1] / 1024.0))
     } else {
         Err("performance command did not return process cpu and memory".into())
     }
