@@ -3026,7 +3026,7 @@ impl CapturePort for WindowsV2CapturePort<'_> {
     }
 
     fn request_local_restore(&mut self) {
-        restore_windows_capture_state(self.context, false);
+        restore_windows_capture_state(self.context, true);
     }
 }
 

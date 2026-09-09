@@ -179,6 +179,17 @@ test('T07: native input is enabled only on the authenticated V2 path', () => {
   assert.match(lib, /V2_NATIVE_RECEIVER_ENABLED[\s\S]*?receiver_mode_enabled/)
 })
 
+test('T09: returning from V2 control releases clipboard ownership', () => {
+  const input = read('src-tauri/src/input.rs')
+  const capturePort = input.match(/impl CapturePort for WindowsV2CapturePort[\s\S]*?\n}/)?.[0]
+  assert.ok(capturePort, 'Windows V2 capture port implementation is present')
+  assert.match(
+    capturePort,
+    /fn request_local_restore\([\s\S]*?restore_windows_capture_state\(self\.context, true\)/,
+    'returning local must stop MyKVM clipboard routing so RustDesk and local apps regain it',
+  )
+})
+
 test('T04.b3: reviewed Windows V2 controller is the only enabled control path', () => {
   assert.match(read('src-tauri/src/fork_policy.rs'), /V2_NATIVE_CONTROLLER_ENABLED: bool = true/)
   const lib = read('src-tauri/src/lib.rs')
