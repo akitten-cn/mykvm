@@ -1,6 +1,6 @@
 # MyKVM Local 交付说明
 
-本地分支为 `feat/mac-first-kvm`，上游基线为 `a2ea4164861de31b562c8417eeb7879dbc8c23cb`。代码、自动化、Mac ARM64 打包、Windows 构建脚本和资源采样准备已经完成；Mac/Windows/LOL 真实运行尚未完成。因此当前交付是可安装验证的 Mac 开发预览及完整源码，不是已经通过双机实测的稳定版。
+本地分支为 `feat/mac-first-kvm`，上游基线为 `a2ea4164861de31b562c8417eeb7879dbc8c23cb`。代码已推送到公开 fork [akitten-cn/mykvm](https://github.com/akitten-cn/mykvm)。自动化、Mac ARM64 打包、Windows 原生 CI 与 Windows NSIS 打包已经完成；Mac/Windows/LOL 真实运行尚未完成。因此当前交付是可安装验证的无签名开发预览及完整源码，不是已经通过双机实测的稳定版。
 
 ## 已实现
 
@@ -15,7 +15,7 @@
 
 - 225 个 Rust 库测试通过，0 failed/ignored。
 - 23 个隔离与安全脚本测试通过，前端 lint/build、核心文件格式检查和 Mac `cargo check --locked --lib` 通过。
-- 46 个定义用例为 `pass`；Mac 运行 5 项为 `not_run`，Windows build 1 项为 `pending_environment`，Windows/LOL 实机 9 项为 `optional_not_run`。
+- W01 Windows 原生编译及非交互测试为 `pass`；Mac 运行 5 项为 `not_run`，Windows/LOL 实机仍为 `optional_not_run`。
 - 严格全仓 fmt 仍因已有格式差异失败；严格 Clippy 仍有 99 项跨平台 dead-code、旧 C 字符串、参数数量等基线诊断。详情见 `docs/T20-regression-review.md`。
 
 测试默认使用 FakeCapture/FakeInjector。真实 QUIC 回环使用两个临时身份和 FakeInjector，不读取或注入桌面输入，也不操作系统剪贴板。
@@ -38,11 +38,20 @@ shasum -a 256 -c docs/PREVIEW_ARTIFACTS.sha256
 
 安装、第一次启动和辅助功能授权会改变本机应用/TCC 状态，需要用户明确允许后执行。建议先复制到独立的 `~/Applications/MyKVM Local.app`，不要覆盖现有上游应用，也不要关闭 Gatekeeper/SIP。若系统拦截未公证预览，应由用户在系统设置中针对该应用作决定，不运行上游签名脚本或修改整机信任。
 
-Mac 端选择接收角色并只授予所需辅助功能权限；Windows 端需要在原生 Windows 上运行 `scripts/build-windows-preview.ps1` 得到真实 NSIS 产物，然后选择控制角色。双方通过六位验证码配对，核对显示器布局和三个控制热键后，先在普通桌面验证控制、返回、紧急返回和全部按键释放，再决定是否测试剪贴板、自启和游戏场景。图片同步保持关闭，直到文本和返回路径实测稳定。
+Mac 端选择接收角色并只授予所需辅助功能权限；Windows 端安装下方的无签名 NSIS 预览并选择控制角色。双方通过六位验证码配对，核对显示器布局和三个控制热键后，先在普通桌面验证控制、返回、紧急返回和全部按键释放，再决定是否测试剪贴板、自启和游戏场景。图片同步保持关闭，直到文本和返回路径实测稳定。
+
+## Windows x64 产物
+
+- 本地安装包：`artifacts/windows/94ff6ed173ba70e4ebab48e20a80209e1693d665/MyKVM Local_0.1.0_x64-setup.exe`
+- SHA-256：`9db3d1e04510e8fe7d179bb529f6604f73ab1bdbe50c111ddbe4f473dfd9fbc0`
+- GitHub artifact：`windows-preview-94ff6ed173ba70e4ebab48e20a80209e1693d665`
+- CI：[Actions run 34344520603](https://github.com/akitten-cn/mykvm/actions/runs/34344520603)
+
+Windows Server 2022 runner 通过原生检查和 216 个库测试后生成该 NSIS 安装器。它未签名，尚未在物理 Windows 主机安装或启动。
 
 ## 未验证和已知限制
 
-- 没有 Windows 原生编译/安装包证据，也没有物理键鼠、双机网络、锁屏/UAC、睡眠恢复或无控制台实测。
+- Windows 原生编译和安装包已由 CI 验证；物理键鼠、双机网络、锁屏/UAC、睡眠恢复和无控制台桌面运行仍未实测。
 - Mac app 未启动；菜单栏关闭/重开、真实剪贴板、辅助功能拒绝/撤销、IME 和长时资源趋势没有数据。
 - LOL 未运行，不承诺反作弊兼容、零游戏影响、绝对零 GPU 或所有窗口模式都能自动交接焦点。
 - 强杀接收端可能无法为已经注入到目标应用的状态补发 key-up；同时使用本地 Mac 键盘可能与远端状态叠加。辅助功能权限在会话中撤销时，释放也可能失败并显示错误。
@@ -58,4 +67,4 @@ Mac 端选择接收角色并只授予所需辅助功能权限；Windows 端需�
 git worktree add --detach ../mykvm-baseline a2ea4164861de31b562c8417eeb7879dbc8c23cb
 ```
 
-不要用强制 reset 覆盖未提交改动。当前没有 GitHub fork、远程推送、公开 Release 或 Windows artifact。
+不要用强制 reset 覆盖未提交改动。当前已有公开 fork、远程推送和短期 Windows artifact；没有创建公开 GitHub Release。

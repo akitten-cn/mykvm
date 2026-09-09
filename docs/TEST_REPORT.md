@@ -1,6 +1,6 @@
 # 首批实现测试报告
 
-日期：2026-09-08。受测代码 `83604777ef3ff49ab95821f9b0b03b74dbbc8fb3`，平台 darwin/arm64。后续收尾提交仅更新文档及任务状态。
+日期：2026-09-09。Mac 最终回归与打包证据见各阶段记录；Windows 最终受测代码为 `94ff6ed173ba70e4ebab48e20a80209e1693d665`。
 
 从仓库根目录运行：
 
@@ -19,7 +19,7 @@
 |新增核心 rustfmt|通过|control_ports、routing、fork_policy 三个文件|
 |全仓 fmt|失败（基线已有）|未以大范围格式化混入原子实现|
 |严格 clippy|失败|基线 53 项诊断，阶段复查 51 项；新核心未产生诊断。最终关闭旧 LAN 后未重跑此全仓检查|
-|Windows 原生 CI|pending_environment|工作流存在但未推送、未运行|
+|Windows 原生 CI|通过|Windows Server 2022 原生检查、216 个库测试及 NSIS 打包通过|
 |Mac 应用包/运行|not_run|没有 app/dmg 交付|
 |Windows / LOL 实机|optional_not_run|不作为其余开发的关卡|
 
@@ -29,15 +29,15 @@
 
 实现 SHA `6effc789ff0ccac45470af0494d353f651dc4bf9` 在 Darwin arm64 上通过 225 个 Rust 库测试、22 个隔离测试、前端 lint/build、核心文件格式检查和 Mac `cargo check --locked --lib`，8 个步骤退出码均为 0。证据为 `.local-evidence/t20-postcommit-final.log` 及 `.local-evidence/native/` 分步日志。A01、A02、A04、A07、A17 的生产接线已经完成，对应状态由早期的部分证据更新为 pass。
 
-严格全仓 fmt 退出码 1，严格 clippy 退出码 101（99 项），分别保存在 `.local-evidence/t20-full-fmt.log` 和 `.local-evidence/t20-strict-clippy.log`。这些仍是 T01 同类的仓库基线债务；本轮发现的图片选项求值和端口溢出诊断已修复。Mac app/dmg 留给 T22，Windows build 为 `pending_environment`，所有实机项保持未运行。
+严格全仓 fmt 退出码 1，严格 clippy 退出码 101（99 项），分别保存在 `.local-evidence/t20-full-fmt.log` 和 `.local-evidence/t20-strict-clippy.log`。这些仍是 T01 同类的仓库基线债务；本轮发现的图片选项求值和端口溢出诊断已修复。Mac app/dmg 由 T22 生成，Windows build 后续由原生 CI 验证，所有实机项保持未运行。
 
 ## T22 Mac ARM64 打包
 
 SHA `7ac6d87cc26ae17a4a465c05435230e182075fb0` 的 `scripts/build-mac-arm.sh` 退出码 0，生成约 17 MiB 的 ARM64 app 与约 6.6 MiB 的 UDZO DMG。`file` 确认主程序为 Mach-O arm64，`hdiutil verify` 确认 DMG 校验有效，M01 更新为 pass。构建使用 `--no-sign`；app 没有完整 bundle 签名或公证，严格 codesign 校验失败并按实际状态记录。未挂载、安装或运行产物。
 
-## T23 Windows 预览准备
+## T23 Windows 预览构建
 
-SHA `c1ae061e4384392e796378a4b0d3dc931dc09549` 增加原生 Windows PowerShell NSIS 构建和 SHA-256 生成，并在 Windows 2022 CI 上传短期 artifact。Mac 上的 225 个 Rust 测试、22 个隔离测试、前端和库检查继续通过；隔离检查确认脚本不安装 helper、修改信任或创建 Release。当前没有原生 Windows 执行证据，W01/windows_build 保持 `pending_environment`，没有伪造 EXE 路径。
+SHA `c1ae061e4384392e796378a4b0d3dc931dc09549` 增加原生 Windows PowerShell NSIS 构建和 SHA-256 生成。首次 Actions 运行真实发现 `performance::tests::parses_unix_ps_cpu_and_rss_kb` 在 Windows cfg 下错误解释 Unix fixture 单位；提交 `94ff6ed173ba70e4ebab48e20a80209e1693d665` 修复后，Windows Server 2022 的原生检查、216 个库测试、release/NSIS 构建和 artifact 上传全部通过。安装包 `MyKVM Local_0.1.0_x64-setup.exe` 为 3,728,677 bytes，SHA-256 为 `9db3d1e04510e8fe7d179bb529f6604f73ab1bdbe50c111ddbe4f473dfd9fbc0`。证据：[Actions run 34344520603](https://github.com/akitten-cn/mykvm/actions/runs/34344520603)。W01/windows_build 更新为 `pass`；Windows 物理输入、安装启动和 LOL 仍未运行。
 
 ## T24 资源采样工具
 

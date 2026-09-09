@@ -27,7 +27,7 @@ MyKVM Local 基于开源项目 [XxMinor/mykvm](https://github.com/XxMinor/mykvm)
 |自动化测试|225 个 Rust 测试和 23 个隔离测试通过|
 |Mac 构建|ARM64 app 与 DMG 已生成并校验|
 |Mac 运行|未运行，没有修改辅助功能或 TCC|
-|Windows 构建|CI 与 NSIS 脚本已就绪，原生 runner 尚未完成|
+|Windows 构建|Windows Server 2022 CI 已通过，已生成无签名 x64 NSIS 安装包|
 |Windows 物理键鼠|未运行|
 |LOL|可选，未运行|
 
@@ -70,6 +70,8 @@ Windows 产物写入 `src-tauri\target\release\bundle\nsis\`，同目录生成 `
 ## CI 产物
 
 `.github/workflows/native-preview.yml` 在 macOS 14 与 Windows Server 2022 上运行非交互检查。Windows job 还会构建无签名 NSIS，并把它以 `windows-preview-<提交 SHA>` 名称保留 7 天。工作流只有仓库只读权限，不创建 GitHub Release。
+
+提交 [`94ff6ed`](https://github.com/akitten-cn/mykvm/commit/94ff6ed173ba70e4ebab48e20a80209e1693d665) 的已验证产物位于 [GitHub Actions 运行 34344520603](https://github.com/akitten-cn/mykvm/actions/runs/34344520603)，artifact 名为 `windows-preview-94ff6ed173ba70e4ebab48e20a80209e1693d665`。其中 `MyKVM Local_0.1.0_x64-setup.exe` 的 SHA-256 是 `9db3d1e04510e8fe7d179bb529f6604f73ab1bdbe50c111ddbe4f473dfd9fbc0`。这是无签名预览；Windows 物理键鼠和双机运行仍未验证。
 
 ## 首次受控试用
 

@@ -613,9 +613,12 @@
       "method": "可用的原生 CI 运行 cfg Windows 编译和 lib 测试",
       "expected": "真实日志；不推导为鼠标钩子运行通过",
       "blocking_development": false,
-      "status": "pending_environment",
+      "status": "pass",
       "evidence": [
-        "../T21-native-checks.md"
+        "../T21-native-checks.md",
+        "../T23-windows-preview.md",
+        "https://github.com/akitten-cn/mykvm/actions/runs/34344520603",
+        "Windows build SHA 94ff6ed173ba70e4ebab48e20a80209e1693d665"
       ]
     },
     {

@@ -1,6 +1,6 @@
 # MyKVM Local 执行进度
 
-更新：2026-09-08。唯一可变任务入口是 `docs/handoff/taskboard.json`；工作区外层 `handoff/` 保留交接包原件。任务中的 approved 表示主线程代码审查完成，不表示用户批准安装或发布。
+更新：2026-09-09。唯一可变任务入口是 `docs/handoff/taskboard.json`；工作区外层 `handoff/` 保留交接包原件。任务中的 approved 表示主线程代码审查完成，不表示安装或实机运行通过。
 
 本轮完成用户要求的 T00/T01 实际核验，并推进了首批实现。完整产品尚未完成。
 
@@ -12,9 +12,9 @@
 |T04.a|完成|纯路由状态机、取消代次、独立原子紧急返回通道，16 项测试|
 |T04.b|完成|接收端、控制端 Router、认证 QUIC 客户端及 Windows hook/热键/关键事件生产路径已接线；T08–T11 审查后控制端 V2 门禁已开启|
 |T04.b3.a|完成|控制端 Hello/Prepare、Ready 校验、随机 SessionId、显式 Commit/CommitAck、Ping/Pong 进度和 End 纯逻辑|
-|T04.b3.b1|完成|Router 与控制端握手适配；Ready 后仍等待按键释放和焦点门槛，提前/晚 ACK 失败关闭，返回先恢复本地；QUIC/Windows 生产接线仍未完成|
-|T04.b3.b2a|完成|有界控制端连接客户端及真实 QUIC transport adapter；入站回调只投递队列，发送/溢出故障先恢复本地；尚未由 Windows 捕获线程实例化|
-|T04.b3.b2b|完成|Windows 捕获线程实例化 V2 客户端；热键/贴边准备、可靠键/按钮/滚轮、Ping 与返回已接线；Windows 构建缺环境，控制端门禁仍关闭|
+|T04.b3.b1|完成|Router 与控制端握手适配；Ready 后仍等待按键释放和焦点门槛，提前/晚 ACK 失败关闭，返回先恢复本地|
+|T04.b3.b2a|完成|有界控制端连接客户端及真实 QUIC transport adapter；入站回调只投递队列，发送/溢出故障先恢复本地|
+|T04.b3.b2b|完成|Windows 捕获线程实例化 V2 客户端；热键/贴边准备、可靠键/按钮/滚轮、Ping 与返回已接线；Windows 原生 CI 已编译通过|
 |T05.a|完成|核验信任漏洞，关闭旧 LAN 入口|
 |T05.b|完成|逐设备持久证书信任、双方 TLS 证书出示、连接代次与角色绑定；配对声明绑定实际连接证书|
 |T06.a|完成|V2 有界帧、版本/能力校验、随机 boot/session 标识及接收握手纯逻辑，7 项测试|
@@ -26,12 +26,12 @@
 |T08.b|完成|每次 motion handle 单一绝对位置槽、至多一个待刷新命令、关闭取消和 Receiver 角色限制；接收应用继续实现|
 |T08.c|完成|接收 reliable floor/latest pending、点击与拖动顺序、认证 datagram、控制端序列、Windows V2 发送、bulk/input 公平性和入站并发预算|
 |T08.d|完成|Prepare/Ready 与 motion 绑定显示器和布局版本；逻辑坐标映射到负原点/缩放后的原生范围，500 ms 显示变化检测失败关闭并释放|
-|T09|完成|三个控制动作、全局注册/冲突回滚、中英文设置、系统与 hook 去重、共享本地门控、物理键释放判定和热键前缀释放；Windows 编译为独立 pending_environment|
+|T09|完成|三个控制动作、全局注册/冲突回滚、中英文设置、系统与 hook 去重、共享本地门控、物理键释放判定和热键前缀释放；Windows 原生 CI 已编译通过|
 |T10.a|完成|持久化手动游戏模式、中英文开关、hook 首指令原子放行、panic FFI 边界和 context try-lock；桌面/远程重路径迁移留给 T10.b|
 |T10.b|完成|1024 项有界 hook 事件队列；回调只做缓存/原子判断、事件复制和 try_send，慢路径移至捕获线程；满队列失败开放|
 |T11|完成|Windows 屏幕外原生焦点窗口；每次请求单次前台交接，失败保留本地并给出 Alt+Tab 中文提示，返回时单次恢复原窗口|
 |T12|完成|Mac 默认保留 Ctrl/Command/Option，显式互换预设；左右键与按下时映射冻结；Caps 按普通键注入，权限失败拒绝会话|
-|T13|完成|Windows 用户会话 message-only window 事件通知；类型化读取、有界 busy 重试、格式序号校验和对称注销；Windows 编译待环境|
+|T13|完成|Windows 用户会话 message-only window 事件通知；类型化读取、有界 busy 重试、格式序号校验和对称注销；Windows 原生 CI 已编译通过|
 |T14|完成|Mac 文本与图片使用进程内后端；NSPasteboard changeCount 变化后才读取，移除 pbpaste/pbcopy 生产调用|
 |T15|完成|认证 V2 文本 bulk、操作版本/摘要、确定性冲突与精确回声识别；可配置文本上限和手动重发|
 |T16|完成|图片同步默认关闭且游戏模式暂停；尺寸/编码预检、48 MiB 帧上限和 128 MiB 全局 bulk 字节预算；超限可见|
@@ -39,15 +39,15 @@
 |T18|完成|菜单栏紧急返回与暂停；主要 IPC 边界验证；诊断导出和输入日志脱敏；中英文键集合自动核对|
 |T19|完成|test-only 双身份真实 QUIC 回环；FakeInjector 覆盖可靠输入、motion 乱序、旧 session、断流释放和租约释放|
 |T20|完成|225 个 Rust 测试、22 个隔离测试及前端/Mac 库检查通过；线程、锁、预算、授权、释放和配置迁移审查完成；严格全仓 fmt/clippy 基线债务留档|
-|T21|脚本完成|原生 Mac/Windows 检查工作流；本机 Mac 实际运行，Windows runner 尚未运行|
+|T21|完成|GitHub Actions 的 macOS 14 与 Windows Server 2022 原生检查均已实际通过|
 |T22|完成|真实 ARM64 app 与 DMG 已生成并校验；无 Developer ID/公证，未安装或启动|
-|T23|脚本完成|Windows 2022 CI 可生成无签名 NSIS 与 SHA-256 artifact；当前无 runner，Windows build 保持 pending_environment|
+|T23|完成|Windows 2022 CI 已生成无签名 NSIS 与 SHA-256 artifact；Windows build 为 pass|
 |T24|工具与说明完成|被动 Mac PID 采样器和 Windows/LOL 固定记录方法完成；未启动 app，M07/W05/L04 保持未运行|
 |T25|完成|交付说明、产物校验、安装前置条件、未验证清单和回滚步骤已核对；代码完成与实机状态分开记录|
 
 T08.c 最后实现 SHA：`5d8bdb104139738bb7f7c9cfece3391019fe41d1`。提交后完整检查通过：191 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查，证据日志为本地 `.local-evidence/t08-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
 
-平台证据独立记录：Mac 库编译、前端构建及 ARM64 app/dmg 打包通过；Mac 应用运行未执行；Windows 构建 pending_environment；Windows/LOL 实机 optional_not_run。T20 最终实现 SHA 为 `6effc789ff0ccac45470af0494d353f651dc4bf9`，完整适用回归日志为 `.local-evidence/t20-postcommit-final.log`。Mac 预览构建 SHA 为 `7ac6d87cc26ae17a4a465c05435230e182075fb0`。没有安装、公开 fork、推送或发布。
+平台证据独立记录：Mac 库编译、前端构建及 ARM64 app/dmg 打包通过；Mac 应用运行未执行；Windows Server 2022 原生编译、216 个库测试和 NSIS 打包通过；Windows/LOL 实机 optional_not_run。最终 Windows 构建 SHA 为 `94ff6ed173ba70e4ebab48e20a80209e1693d665`，证据为 [Actions run 34344520603](https://github.com/akitten-cn/mykvm/actions/runs/34344520603)。代码已推送到公开 fork；没有安装或创建 GitHub Release。
 
 T09 当前实现 SHA：`9aed9a81aa928ad67ba2bf298d49b63027b44dd6`。提交后检查通过：198 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和相关格式检查，证据日志为本地 `.local-evidence/t09c-postcommit.log`。
 

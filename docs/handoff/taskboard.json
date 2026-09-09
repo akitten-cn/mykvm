@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "document_version": "2.0",
-  "updated_at": "2026-09-08",
+  "updated_at": "2026-09-09",
   "development_host": "macOS / Apple Silicon M4",
   "policy": {
     "lol_is_hard_gate": false,
@@ -40,7 +40,7 @@
         "automated": "pass",
         "mac_build": "not_run",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -85,7 +85,7 @@
         "automated": "fail",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run",
         "notes": "Mac cargo check/web build only; app package not generated; baseline fmt/clippy fail recorded in SOURCE_AUDIT."
@@ -133,7 +133,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run",
         "notes": "Frontend build and Mac lib tests passed; no packaged app or Windows compilation."
@@ -177,7 +177,7 @@
         "automated": "pass",
         "mac_build": "not_run",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run",
         "notes": "5 port tests only; M05 protocol loopback and A28 native hook proof remain pending."
@@ -224,7 +224,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run",
         "notes": "Router, authenticated receiver/controller adapters and Windows hook wiring implemented. Controller gate opened after T08-T11 review at SHA 63154dcbfc4ff68ccb0d1a911c1652b0ba54fde9; Windows native compile remains pending_environment."
@@ -341,7 +341,7 @@
                   "verification": {
                     "automated": "pass",
                     "mac_build": "pass",
-                    "windows_build": "pending_environment",
+                    "windows_build": "pass",
                     "scope": "AppRuntime and Windows hook source wired behind a false compile-time gate; pure event mapping and safety policy tests pass. Windows target stdlib is unavailable locally."
                   }
                 }
@@ -615,7 +615,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -710,7 +710,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -758,7 +758,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -811,7 +811,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -861,7 +861,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -908,7 +908,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -956,7 +956,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -1007,7 +1007,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -1062,7 +1062,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -1123,7 +1123,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -1180,7 +1180,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -1239,7 +1239,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -1333,7 +1333,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -1382,13 +1382,15 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run",
-        "notes": "Native script actually passed on Mac; Windows workflow has not run; packaging is T22/T23."
+        "notes": "macOS 14 and Windows Server 2022 native jobs passed in GitHub Actions; Windows physical runtime was not exercised."
       },
       "evidence": [
-        "../T21-native-checks.md"
+        "../T21-native-checks.md",
+        "GitHub Actions run https://github.com/akitten-cn/mykvm/actions/runs/34344520603",
+        "Windows build SHA 94ff6ed173ba70e4ebab48e20a80209e1693d665"
       ],
       "blocked_reason": null
     },
@@ -1428,7 +1430,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -1476,14 +1478,17 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
-        "lol_runtime": "optional_not_run"
+        "lol_runtime": "optional_not_run",
+        "notes": "Unsigned NSIS installer generated on Windows Server 2022; physical Windows runtime remains optional_not_run."
       },
       "evidence": [
         "../T23-windows-preview.md",
         "implementation SHA c1ae061e4384392e796378a4b0d3dc931dc09549",
-        ".local-evidence/t23-postcommit.log"
+        ".local-evidence/t23-postcommit.log",
+        "GitHub Actions run https://github.com/akitten-cn/mykvm/actions/runs/34344520603",
+        "Windows build SHA 94ff6ed173ba70e4ebab48e20a80209e1693d665"
       ],
       "blocked_reason": null
     },
@@ -1524,7 +1529,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },
@@ -1573,7 +1578,7 @@
         "automated": "pass",
         "mac_build": "pass",
         "mac_runtime": "not_run",
-        "windows_build": "pending_environment",
+        "windows_build": "pass",
         "windows_runtime": "optional_not_run",
         "lol_runtime": "optional_not_run"
       },

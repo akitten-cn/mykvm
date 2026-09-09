@@ -27,7 +27,7 @@ This fork targets one specific setup: a Windows PC supplies the physical keyboar
 | Automated tests | 225 Rust tests and 23 isolation tests pass |
 | macOS build | ARM64 app and DMG generated and verified |
 | macOS runtime | Not run; no Accessibility/TCC changes were made |
-| Windows build | CI and NSIS script ready; native runner has not completed yet |
+| Windows build | Windows Server 2022 CI passed; unsigned x64 NSIS installer generated |
 | Windows physical input | Not run |
 | League of Legends | Optional and not run |
 
@@ -75,6 +75,8 @@ The Windows output is written to `src-tauri\target\release\bundle\nsis\`, togeth
 ## CI artifacts
 
 `.github/workflows/native-preview.yml` runs non-interactive checks on macOS 14 and Windows Server 2022. The Windows job also builds an unsigned NSIS installer and uploads it as `windows-preview-<commit SHA>` for seven days. The workflow has read-only repository permissions and does not create a GitHub Release.
+
+The verified build for commit [`94ff6ed`](https://github.com/akitten-cn/mykvm/commit/94ff6ed173ba70e4ebab48e20a80209e1693d665) is available from [GitHub Actions run 34344520603](https://github.com/akitten-cn/mykvm/actions/runs/34344520603) as `windows-preview-94ff6ed173ba70e4ebab48e20a80209e1693d665`. It contains `MyKVM Local_0.1.0_x64-setup.exe` with SHA-256 `9db3d1e04510e8fe7d179bb529f6604f73ab1bdbe50c111ddbe4f473dfd9fbc0`. This is an unsigned preview; Windows physical input and two-machine runtime testing remain unverified.
 
 ## Controlled first run
 
