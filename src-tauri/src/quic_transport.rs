@@ -1463,13 +1463,27 @@ fn spawn_stream_reader(
                                         .await
                                         .unwrap_or(false);
                                 let ack: &[u8] = if accepted { b"ok" } else { b"reject" };
-                                let _ = send.write_all(ack).await;
-                                let _ = send.finish();
+                                if let Err(error) = send.write_all(ack).await {
+                                    log::warn!("QUIC stream ACK write failed: {error}");
+                                    return;
+                                }
+                                if let Err(error) = send.finish() {
+                                    log::warn!("QUIC stream ACK finish failed: {error}");
+                                    return;
+                                }
                                 if accepted && was_unauthenticated {
                                     // A successful unauthenticated stream can only be the
                                     // bounded manual pairing exchange. Force a new TLS
                                     // connection so the newly persisted certificate is
                                     // evaluated and bound before any data channel is opened.
+                                    // Wait until the peer has consumed the stream first: closing
+                                    // the connection immediately after finish() can discard the
+                                    // ACK and make a successful pairing look like connection loss.
+                                    let _ = tokio::time::timeout(
+                                        Duration::from_millis(500),
+                                        send.stopped(),
+                                    )
+                                    .await;
                                     connection.close(0_u32.into(), b"pairing-complete");
                                 }
                             }
@@ -2267,6 +2281,63 @@ mod tests {
         assert_eq!(peer.role, PeerRole::Controller);
         assert_eq!(peer.trust_revision, 4);
         assert!(peer.connection_generation > 0);
+
+        controller.shutdown();
+        receiver.shutdown();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn accepted_untrusted_pairing_stream_delivers_ack_before_connection_close() {
+        let suffix = format!("{}-pairing-ack", std::process::id());
+        let root = std::env::temp_dir().join(format!("mykvm-auth-loopback-{suffix}"));
+        let controller_dir = root.join("controller");
+        let receiver_dir = root.join("receiver");
+        let receiver_identity = load_or_create_identity(&receiver_dir).unwrap();
+        let receiver_port = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let controller_port = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+
+        let receiver = start(
+            receiver_port,
+            receiver_dir,
+            TrustedPeerRegistry::default(),
+            Arc::new(|_, _| {}),
+            Arc::new(|payload, peer| {
+                matches!(peer, ConnectionPeer::Unauthenticated { .. }) && payload == b"pair-confirm"
+            }),
+            Arc::new(|_, _| None),
+            Arc::new(|_, _| false),
+            Arc::new(|_, _| {}),
+        )
+        .unwrap();
+        let controller = start(
+            controller_port,
+            controller_dir,
+            TrustedPeerRegistry::default(),
+            Arc::new(|_, _| {}),
+            Arc::new(|_, _| false),
+            Arc::new(|_, _| None),
+            Arc::new(|_, _| false),
+            Arc::new(|_, _| {}),
+        )
+        .unwrap();
+        let peer = controller.peer(
+            format!("127.0.0.1:{}", receiver.port()),
+            receiver_identity.public_key,
+            PROTOCOL_VERSION,
+        );
+
+        controller
+            .send_stream_expect_ack(peer, b"pair-confirm".to_vec())
+            .expect("pairing confirmation ACK must arrive before connection close");
 
         controller.shutdown();
         receiver.shutdown();
