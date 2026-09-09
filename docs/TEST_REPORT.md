@@ -1,6 +1,6 @@
 # 首批实现测试报告
 
-日期：2026-09-09。Mac 最终回归与打包证据见各阶段记录；Windows 最终受测代码为 `94ff6ed173ba70e4ebab48e20a80209e1693d665`。
+日期：2026-09-09。Mac 最终回归与打包证据见各阶段记录；Windows 最新受测代码为 `1bb798647cdaf3eec9873db07896a153bb5d4c14`。
 
 从仓库根目录运行：
 
@@ -20,7 +20,7 @@
 |全仓 fmt|失败（基线已有）|未以大范围格式化混入原子实现|
 |严格 clippy|失败|基线 53 项诊断，阶段复查 51 项；新核心未产生诊断。最终关闭旧 LAN 后未重跑此全仓检查|
 |Windows 原生 CI|通过|Windows Server 2022 原生检查、216 个库测试及 NSIS 打包通过|
-|Mac 应用包/运行|not_run|没有 app/dmg 交付|
+|Mac 应用包/运行|构建 pass；运行 not_run|0.1.1 ARM64 app/dmg 已生成并校验；未启动或修改 TCC|
 |Windows / LOL 实机|optional_not_run|不作为其余开发的关卡|
 
 开发过程中路由补充测试暴露了重复 Ready 覆盖会话和部分准备失败清理问题，已修复并通过回归。测试默认使用 FakeCapture/FakeInjector，不调用真实键鼠或剪贴板。
@@ -236,3 +236,8 @@ A41 在 Mac 本机创建权限 0600 的 Unix socket，第二次 bind 被识别�
 A43 为 `save_layout` 增加 2 MiB 总输入上限、枚举/设备数/屏幕尺寸和缩放校验；手工主机、六位验证码及剪贴板文本在进入网络或系统 API 前验证长度和控制字符。恶意超长字段、NaN 缩放、注入式语言和换行主机均被拒绝。复制的诊断报告将本机身份、设备名、IP/host、日志和配置路径替换为脱敏标记；含 `password=hunter2` 的设备 fixture 不会出现在报告行。默认日志扫描禁止剪贴板正文、配对密钥、公钥和具体键码字段。
 
 最终 SHA `7d0e5631bb6be5da1e07f6691cd2d831948ca843` 的提交后检查退出码 0：225 个 Rust 库测试、22 项隔离检查、前端 lint/build 和 Mac cargo check 通过。未启动应用或读取真实剪贴板；Windows 构建仍为 `pending_environment`。
+
+
+## T26 发现与配对回归
+
+旧代码的隔离测试确认 `start_discovery` 在绑定 socket 前提前 `return Ok(())`，因此 0.1.0 Mac 客户端不能响应 Windows 的 UDP 47833 探测。修复后定向 UDP 测试在回环地址接收显式 probe、解码并回送 announce，调用端取得目标 peer；完整检查为 226 passed、0 failed、23 项隔离检查通过。0.1.1 Mac 原生构建与 DMG 校验通过。GitHub Actions [run 34349252256](https://github.com/akitten-cn/mykvm/actions/runs/34349252256) 的 macOS 14 和 Windows Server 2022 job 均通过，Windows job 构建的 NSIS SHA-256 为 `138d26948931a8f4dedd2ec46fc9ccc20f4e1eda96a69a7edb2b1ebaecf563c7`；[Linux CI run 34349252180](https://github.com/akitten-cn/mykvm/actions/runs/34349252180) 也通过。未启动 Mac app，也未在物理 Windows 与 `192.168.3.17` 间重跑配对。

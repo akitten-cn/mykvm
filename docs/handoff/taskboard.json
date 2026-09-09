@@ -1589,6 +1589,53 @@
         "../PROGRESS.md"
       ],
       "blocked_reason": null
+    },
+    {
+      "id": "T26",
+      "phase": "P4",
+      "title": "修复发现与配对无响应",
+      "depends_on": [
+        "T05.b",
+        "T23"
+      ],
+      "paths": [
+        "src-tauri/src/lib.rs",
+        "scripts/fork-isolation.test.mjs",
+        "README.md",
+        "README.zh-CN.md",
+        "docs/T26-discovery-pairing-fix.md"
+      ],
+      "actions": [
+        "复现禁用旧数据通道时发现监听被提前退出。",
+        "保留旧数据入口关闭并恢复 UDP 发现与安全配对监听。",
+        "执行显式地址 UDP 回环、完整检查、Mac 打包和 Windows 原生 CI。"
+      ],
+      "test_ids": [],
+      "deliverables": [
+        "0.1.1 Mac DMG",
+        "0.1.1 Windows NSIS",
+        "发现故障排查说明"
+      ],
+      "review_focus": [
+        "恢复发现不能重新打开旧输入、剪贴板或文件数据通道；双机未重试不得记为通过。"
+      ],
+      "implementation": "done",
+      "review": "approved",
+      "verification": {
+        "automated": "pass",
+        "mac_build": "pass",
+        "mac_runtime": "not_run",
+        "windows_build": "pass",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [
+        "../T26-discovery-pairing-fix.md",
+        "fix SHA 08171ae78c7901ad98bcbb9d1e0885ff6cdef12d",
+        "build SHA 1bb798647cdaf3eec9873db07896a153bb5d4c14",
+        "GitHub Actions run https://github.com/akitten-cn/mykvm/actions/runs/34349252256"
+      ],
+      "blocked_reason": null
     }
   ]
 }

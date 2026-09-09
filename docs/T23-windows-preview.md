@@ -13,3 +13,8 @@
 - 本地下载：`artifacts/windows/94ff6ed173ba70e4ebab48e20a80209e1693d665/MyKVM Local_0.1.0_x64-setup.exe`
 
 `file` 将安装器识别为 Windows PE/Nullsoft Installer 自解压包，下载后的 SHA-256 与 runner 生成值一致。安装器没有代码签名；没有在 Windows 桌面安装或启动，因此 W02、物理键鼠、双机网络与 LOL 实机仍为 `optional_not_run`。
+
+
+## 0.1.1 发现响应修复构建
+
+提交 `1bb798647cdaf3eec9873db07896a153bb5d4c14` 在 [Actions run 34349252256](https://github.com/akitten-cn/mykvm/actions/runs/34349252256) 上再次通过 macOS 14 与 Windows Server 2022 原生检查。Windows job 通过 226 个库测试并生成 `MyKVM Local_0.1.1_x64-setup.exe`（3,742,150 bytes），SHA-256 为 `138d26948931a8f4dedd2ec46fc9ccc20f4e1eda96a69a7edb2b1ebaecf563c7`；下载后的本地散列与 runner 的 `SHA256SUMS` 一致。artifact 为 `windows-preview-1bb798647cdaf3eec9873db07896a153bb5d4c14`，本地路径为 `artifacts/windows/1bb798647cdaf3eec9873db07896a153bb5d4c14/MyKVM Local_0.1.1_x64-setup.exe`。

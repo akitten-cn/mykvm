@@ -38,7 +38,7 @@
 |T17|完成|Rust 后台独立于设置 WebView；按需创建/销毁窗口、Mac/Unix 单实例唤起、显式普通用户自启和中文菜单栏|
 |T18|完成|菜单栏紧急返回与暂停；主要 IPC 边界验证；诊断导出和输入日志脱敏；中英文键集合自动核对|
 |T19|完成|test-only 双身份真实 QUIC 回环；FakeInjector 覆盖可靠输入、motion 乱序、旧 session、断流释放和租约释放|
-|T20|完成|225 个 Rust 测试、22 个隔离测试及前端/Mac 库检查通过；线程、锁、预算、授权、释放和配置迁移审查完成；严格全仓 fmt/clippy 基线债务留档|
+|T20|完成|226 个 Rust 测试、23 个隔离测试及前端/Mac 库检查通过；线程、锁、预算、授权、释放和配置迁移审查完成；严格全仓 fmt/clippy 基线债务留档|
 |T21|完成|GitHub Actions 的 macOS 14 与 Windows Server 2022 原生检查均已实际通过|
 |T22|完成|真实 ARM64 app 与 DMG 已生成并校验；无 Developer ID/公证，未安装或启动|
 |T23|完成|Windows 2022 CI 已生成无签名 NSIS 与 SHA-256 artifact；Windows build 为 pass|
@@ -47,10 +47,15 @@
 
 T08.c 最后实现 SHA：`5d8bdb104139738bb7f7c9cfece3391019fe41d1`。提交后完整检查通过：191 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和核心格式检查，证据日志为本地 `.local-evidence/t08-postcommit.log`。全仓严格 fmt/clippy 的既有问题详见 TEST_REPORT.md。
 
-平台证据独立记录：Mac 库编译、前端构建及 ARM64 app/dmg 打包通过；Mac 应用运行未执行；Windows Server 2022 原生编译、216 个库测试和 NSIS 打包通过；Windows/LOL 实机 optional_not_run。最终 Windows 构建 SHA 为 `94ff6ed173ba70e4ebab48e20a80209e1693d665`，证据为 [Actions run 34344520603](https://github.com/akitten-cn/mykvm/actions/runs/34344520603)。代码已推送到公开 fork；没有安装或创建 GitHub Release。
+平台证据独立记录：Mac 库编译、前端构建及 ARM64 app/dmg 打包通过；Mac 应用运行未执行；Windows Server 2022 原生编译、216 个库测试和 NSIS 打包通过；Windows/LOL 实机 optional_not_run。最新 Windows 构建 SHA 为 `1bb798647cdaf3eec9873db07896a153bb5d4c14`，证据为 [Actions run 34349252256](https://github.com/akitten-cn/mykvm/actions/runs/34349252256)。代码已推送到公开 fork；没有安装或创建 GitHub Release。
 
 T09 当前实现 SHA：`9aed9a81aa928ad67ba2bf298d49b63027b44dd6`。提交后检查通过：198 个 Rust 库测试、9 项隔离检查、前端 lint/build、Mac cargo check 和相关格式检查，证据日志为本地 `.local-evidence/t09c-postcommit.log`。
 
 设置界面 SHA `d445e9b9757077500f896534b94a1104f3745edd` 已补三个控制热键的中英文录入和说明，前端检查日志为 `.local-evidence/t09d-postcommit.log`。T10.a SHA `2dfda6453a7dcbf725ddf5584e7d01e462e1e7c7` 完成游戏模式最短放行；T10.b SHA `15fd004b5f471f7f83cc3b86fffb1a448e74dfaf` 将其余重路径移出 hook，检查日志为 `.local-evidence/t10b-postcommit.log`。T11 SHA `19191db65aaac1743823538df3d4c4ad066e6c5b` 完成 Windows 单次焦点交接与失败提示，检查日志为 `.local-evidence/t11-postcommit.log`。T08.d SHA `3dfca829cc74e7d4ff4c47ce2fb826ecd10af2ee` 完成显示布局版本和坐标门控。下一原子任务审查控制端总门禁；Windows 构建和双机试用状态仍独立保留。
 
 控制端门禁审查 SHA `63154dcbfc4ff68ccb0d1a911c1652b0ba54fde9` 已开启认证 V2 Windows 控制路径，旧 LAN 和特权路径继续关闭。T12/T19 已完成键位和安全回环。T13 SHA `3a5f7dc5f0e010c6881b04b1259986ec2105ac13` 完成 Windows 原生通知，Windows 编译仍为 pending_environment。T14 SHA `e2a3ccdb47ad1680ccef8f71dd182c2706ca614d` 完成 Mac 进程内剪贴板与 changeCount 门控。T15 核心 SHA `73f4868d489bd2ae8e9bc151fcdd9b46aa7ff0c9`、接线 SHA `112539cd9a0e20851fc55c03df93d0b9c89ded78` 完成认证双向文本同步。T16 SHA `f7e5a07f1e584fcc44ec50f1f376f3a29e8ba15d` 完成可选图片同步和全局 bulk 内存预算。T17 SHA `e838ec27a5c863ad234b136da186ba2cdc1e1130` 完成后台窗口生命周期与 Mac 单实例。T18 最终 SHA `7d0e5631bb6be5da1e07f6691cd2d831948ca843` 完成菜单动作、IPC 与诊断安全；M02/M03 真实运行未执行。下一原子任务按 taskboard 为 P4 的集成与交付准备。
+
+
+## T26 发现与配对响应修复
+
+用户报告 Windows 服务端向 `192.168.3.17:47833` 添加 Mac 客户端时没有响应。修复 SHA `08171ae78c7901ad98bcbb9d1e0885ff6cdef12d` 让禁用旧数据通道后的启动流程继续绑定 UDP 发现 socket；旧输入、剪贴板和文件数据入口仍关闭。测试先复现提前返回，再以显式地址 UDP 回环验证 probe/announce。完整本机检查通过 226 个 Rust 库测试和 23 个隔离测试。版本 `0.1.1` 的 Mac ARM64 DMG 已生成并校验；SHA `1bb798647cdaf3eec9873db07896a153bb5d4c14` 的 macOS 14、Windows Server 2022 和 Linux CI 均通过，Windows NSIS 已下载核验。真实 `192.168.3.17` 双机重试尚未运行，保持 `optional_not_run`。

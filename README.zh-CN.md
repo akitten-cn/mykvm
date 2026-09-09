@@ -24,7 +24,7 @@ MyKVM Local 基于开源项目 [XxMinor/mykvm](https://github.com/XxMinor/mykvm)
 
 |范围|状态|
 |---|---|
-|自动化测试|225 个 Rust 测试和 23 个隔离测试通过|
+|自动化测试|226 个 Rust 测试和 23 个隔离测试通过|
 |Mac 构建|ARM64 app 与 DMG 已生成并校验|
 |Mac 运行|未运行，没有修改辅助功能或 TCC|
 |Windows 构建|Windows Server 2022 CI 已通过，已生成无签名 x64 NSIS 安装包|
@@ -71,13 +71,17 @@ Windows 产物写入 `src-tauri\target\release\bundle\nsis\`，同目录生成 `
 
 `.github/workflows/native-preview.yml` 在 macOS 14 与 Windows Server 2022 上运行非交互检查。Windows job 还会构建无签名 NSIS，并把它以 `windows-preview-<提交 SHA>` 名称保留 7 天。工作流只有仓库只读权限，不创建 GitHub Release。
 
-提交 [`94ff6ed`](https://github.com/akitten-cn/mykvm/commit/94ff6ed173ba70e4ebab48e20a80209e1693d665) 的已验证产物位于 [GitHub Actions 运行 34344520603](https://github.com/akitten-cn/mykvm/actions/runs/34344520603)，artifact 名为 `windows-preview-94ff6ed173ba70e4ebab48e20a80209e1693d665`。其中 `MyKVM Local_0.1.0_x64-setup.exe` 的 SHA-256 是 `9db3d1e04510e8fe7d179bb529f6604f73ab1bdbe50c111ddbe4f473dfd9fbc0`。这是无签名预览；Windows 物理键鼠和双机运行仍未验证。
+已修复发现响应的提交 [`1bb7986`](https://github.com/akitten-cn/mykvm/commit/1bb798647cdaf3eec9873db07896a153bb5d4c14) 产物位于 [GitHub Actions 运行 34349252256](https://github.com/akitten-cn/mykvm/actions/runs/34349252256)，artifact 名为 `windows-preview-1bb798647cdaf3eec9873db07896a153bb5d4c14`。其中 `MyKVM Local_0.1.1_x64-setup.exe` 的 SHA-256 是 `138d26948931a8f4dedd2ec46fc9ccc20f4e1eda96a69a7edb2b1ebaecf563c7`。这是无签名预览；Windows 物理键鼠和双机运行仍未验证。
 
 ## 首次受控试用
 
 不要覆盖已有上游安装。先核对校验和，再以独立的 **MyKVM Local** 名称安装。Mac 选择接收角色，Windows 选择控制角色；双方使用六位验证码配对，核对显示器布局和三个控制热键。先在普通桌面验证控制、返回、紧急返回和全部按键释放，再考虑图片剪贴板、自启或游戏场景。
 
 Mac 注入输入需要辅助功能权限。本仓库不会自动关闭 Gatekeeper 或修改 TCC。当前产物路径、未验证项和回滚步骤见 [交付说明](./docs/DELIVERY.md)。
+
+### 添加设备没有响应
+
+请确认两端都使用 0.1.1 或更新版本；0.1.0 有一个已知缺陷，会使 Mac 客户端不监听发现请求。Windows 应选择“服务端”，Mac 应选择“客户端”。手动地址填写 Mac 的 `IP:47833`，该 UDP 端口用于发现和发起配对；认证 QUIC 通常使用客户端公布的下一个端口（默认 `47834`），无需在“添加设备”中填写。若 0.1.1 仍无响应，再检查两台设备是否在同一局域网，以及 macOS/Windows 防火墙是否允许 MyKVM Local 的入站 UDP。
 
 ## 文档
 
@@ -87,6 +91,7 @@ Mac 注入输入需要辅助功能权限。本仓库不会自动关闭 Gatekeepe
 - [任务板](./docs/handoff/taskboard.json)
 - [Mac 预览构建证据](./docs/T22-mac-preview.md)
 - [Windows 预览流水线](./docs/T23-windows-preview.md)
+- [发现与配对响应修复](./docs/T26-discovery-pairing-fix.md)
 - [资源验证方法](./docs/T24-resource-validation.md)
 
 ## 许可证与署名

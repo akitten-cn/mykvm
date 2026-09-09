@@ -24,7 +24,7 @@ This fork targets one specific setup: a Windows PC supplies the physical keyboar
 
 | Area | Status |
 | --- | --- |
-| Automated tests | 225 Rust tests and 23 isolation tests pass |
+| Automated tests | 226 Rust tests and 23 isolation tests pass |
 | macOS build | ARM64 app and DMG generated and verified |
 | macOS runtime | Not run; no Accessibility/TCC changes were made |
 | Windows build | Windows Server 2022 CI passed; unsigned x64 NSIS installer generated |
@@ -76,13 +76,17 @@ The Windows output is written to `src-tauri\target\release\bundle\nsis\`, togeth
 
 `.github/workflows/native-preview.yml` runs non-interactive checks on macOS 14 and Windows Server 2022. The Windows job also builds an unsigned NSIS installer and uploads it as `windows-preview-<commit SHA>` for seven days. The workflow has read-only repository permissions and does not create a GitHub Release.
 
-The verified build for commit [`94ff6ed`](https://github.com/akitten-cn/mykvm/commit/94ff6ed173ba70e4ebab48e20a80209e1693d665) is available from [GitHub Actions run 34344520603](https://github.com/akitten-cn/mykvm/actions/runs/34344520603) as `windows-preview-94ff6ed173ba70e4ebab48e20a80209e1693d665`. It contains `MyKVM Local_0.1.0_x64-setup.exe` with SHA-256 `9db3d1e04510e8fe7d179bb529f6604f73ab1bdbe50c111ddbe4f473dfd9fbc0`. This is an unsigned preview; Windows physical input and two-machine runtime testing remain unverified.
+The discovery-response fix build for commit [`1bb7986`](https://github.com/akitten-cn/mykvm/commit/1bb798647cdaf3eec9873db07896a153bb5d4c14) is available from [GitHub Actions run 34349252256](https://github.com/akitten-cn/mykvm/actions/runs/34349252256) as `windows-preview-1bb798647cdaf3eec9873db07896a153bb5d4c14`. It contains `MyKVM Local_0.1.1_x64-setup.exe` with SHA-256 `138d26948931a8f4dedd2ec46fc9ccc20f4e1eda96a69a7edb2b1ebaecf563c7`. This is an unsigned preview; Windows physical input and two-machine runtime testing remain unverified.
 
 ## Controlled first run
 
 Do not replace an existing upstream installation. Verify the checksum and install this fork under its independent **MyKVM Local** name. The Mac should use the receiver role; the Windows machine should use the controller role. Pair both devices with the six-digit code, confirm the monitor layout and all three control hotkeys, then test on a normal desktop before enabling clipboard images, autostart, or any game scenario.
 
 macOS input injection requires Accessibility permission. This repository does not disable Gatekeeper or modify TCC automatically. See [the delivery guide](./docs/DELIVERY.md) for the current artifact paths, unverified items, and rollback steps.
+
+### No response while adding a device
+
+Both machines must run version 0.1.1 or newer. Version 0.1.0 has a known defect that prevents the Mac client from listening for discovery probes. Select **Server** on Windows and **Client** on the Mac. Enter the Mac address as `IP:47833`; this UDP port is used for discovery and pairing initiation. Authenticated QUIC normally uses the next port advertised by the client (`47834` by default), so do not enter it in the Add Device field. If 0.1.1 still does not answer, confirm that both devices are on the same LAN and that the macOS and Windows firewalls allow inbound UDP for MyKVM Local.
 
 ## Documentation
 
@@ -92,6 +96,7 @@ macOS input injection requires Accessibility permission. This repository does no
 - [Task board](./docs/handoff/taskboard.json)
 - [Mac preview build evidence](./docs/T22-mac-preview.md)
 - [Windows preview pipeline](./docs/T23-windows-preview.md)
+- [Discovery and pairing response fix](./docs/T26-discovery-pairing-fix.md)
 - [Resource validation procedure](./docs/T24-resource-validation.md)
 
 ## License and attribution

@@ -10,6 +10,7 @@ release will reuse them).
 
 ### Fixed
 
+- Fixed version 0.1.0 failing to answer device discovery and pairing probes when legacy data transport was disabled. Windows Server can now add a Mac Client at its discovery address (for example, `192.168.3.17:47833`) while legacy input, clipboard, and file data paths remain blocked.
 - Keyboard, mouse, and clipboard could fail to connect between machines — the QUIC handshake rejected the peer with `invalid peer certificate: BadSignature`. The transport now pins the device's advertised certificate directly instead of running brittle chain validation over a self-signed certificate, which fixes cross-platform (macOS ↔ Windows) handshakes.
 
 ## v0.4.0
