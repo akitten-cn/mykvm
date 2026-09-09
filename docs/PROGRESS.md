@@ -64,3 +64,7 @@ T09 当前实现 SHA：`9aed9a81aa928ad67ba2bf298d49b63027b44dd6`。提交后检
 ## T27 QUIC 预热与 RustDesk 共存
 
 0.1.1 的认证空 QUIC 预热 datagram 被错误交给 motion 解码，产生 `InvalidLength` 并覆盖权限状态；修复 SHA `084a2b3e82f1b386c8bcd646d9a4361a31c6582e` 对空预热包静默处理，非空坏包仍拒绝。Windows 返回本地未清除剪贴板目标，修复 SHA `73990b1c2f2edf00e9ab71b1dc753eaf999d83f0` 改为同时释放。完整本机检查通过 227 个 Rust 库测试、24 个隔离测试；[Actions run 34353184370](https://github.com/akitten-cn/mykvm/actions/runs/34353184370) 的 macOS 14 与 Windows Server 2022 job 均通过。0.1.2 Windows NSIS SHA-256 为 `704fbdb6eca1bf4aad60d0cdaccefacd2b420368c97de7e1ab7169cc490af0fd`。真实双机与 RustDesk 切换待安装后复测。
+
+## T28 配对 ACK 与空闲路由
+
+0.1.2 的 Mac 在接受配对确认后立即关闭未认证 QUIC 连接，导致 Windows 读取 ACK 时得到 `connection lost`。修复 SHA `221fd14a92715c13552eaed8dc5672af2a25e320` 先等待对端消费 ACK，再关闭连接；真实 QUIC 回环在修复前复现、修复后通过。SHA `1d4a8e93fcf6dfa8ea8bbc3ee6bdf1de241a0663` 让 Windows 控制运行时启动时强制回到本机并清空剪贴板目标，避免旧状态影响 RustDesk。0.1.3 构建 SHA `c73efd374a3be124b1e278866cf366b5e911df4d` 已通过本机 228 个 Rust 测试、24 个隔离测试、前端与 Mac 原生检查；Mac DMG 已验证。[Actions run 34357658307](https://github.com/akitten-cn/mykvm/actions/runs/34357658307) 的 macOS 14 与 Windows Server 2022 job 均通过，Windows NSIS SHA-256 为 `a50fe23e7f14d176633e8b1e468d8e669544844fba020f4b846c4cbd35b3d087`。双机实测仍为 `optional_not_run`。

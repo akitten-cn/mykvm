@@ -1,3 +1,3 @@
-ceed9d80feab6bbadf40d94808b177190fe762211381424e9f7cf999b844fa42  src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/MyKVM Local_0.1.2_aarch64.dmg
-887da53486f7212d1f566921abec9b3a31caba9407b599acd737087859657135  src-tauri/target/aarch64-apple-darwin/release/bundle/macos/MyKVM Local.app/Contents/MacOS/mykvm-local
-704fbdb6eca1bf4aad60d0cdaccefacd2b420368c97de7e1ab7169cc490af0fd  artifacts/windows/73990b1c2f2edf00e9ab71b1dc753eaf999d83f0/MyKVM Local_0.1.2_x64-setup.exe
+be0c1c93747b68c52b2a61e98e98047da21dfeaf3aa44cee4dc0a64553660c72  artifacts/macos/c73efd374a3be124b1e278866cf366b5e911df4d/MyKVM Local_0.1.3_aarch64.dmg
+128fbf65594a21f647660eca269d1a7f606d13a6641211dd01fc5b74843fe7a0  src-tauri/target/aarch64-apple-darwin/release/bundle/macos/MyKVM Local.app/Contents/MacOS/mykvm-local
+a50fe23e7f14d176633e8b1e468d8e669544844fba020f4b846c4cbd35b3d087  artifacts/windows/c73efd374a3be124b1e278866cf366b5e911df4d/MyKVM Local_0.1.3_x64-setup.exe

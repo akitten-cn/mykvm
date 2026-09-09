@@ -76,7 +76,7 @@ The Windows output is written to `src-tauri\target\release\bundle\nsis\`, togeth
 
 `.github/workflows/native-preview.yml` runs non-interactive checks on macOS 14 and Windows Server 2022. The Windows job also builds an unsigned NSIS installer and uploads it as `windows-preview-<commit SHA>` for seven days. The workflow has read-only repository permissions and does not create a GitHub Release.
 
-The discovery-response fix build for commit [`73990b1`](https://github.com/akitten-cn/mykvm/commit/73990b1c2f2edf00e9ab71b1dc753eaf999d83f0) is available from [GitHub Actions run 34353184370](https://github.com/akitten-cn/mykvm/actions/runs/34353184370) as `windows-preview-73990b1c2f2edf00e9ab71b1dc753eaf999d83f0`. It contains `MyKVM Local_0.1.2_x64-setup.exe` with SHA-256 `704fbdb6eca1bf4aad60d0cdaccefacd2b420368c97de7e1ab7169cc490af0fd`. This is an unsigned preview; Windows physical input and two-machine runtime testing remain unverified.
+The current pairing fix is version 0.1.3 at commit [`c73efd3`](https://github.com/akitten-cn/mykvm/commit/c73efd374a3be124b1e278866cf366b5e911df4d). [GitHub Actions run 34357658307](https://github.com/akitten-cn/mykvm/actions/runs/34357658307) passed on macOS 14 and Windows Server 2022 and produced `MyKVM Local_0.1.3_x64-setup.exe`, SHA-256 `a50fe23e7f14d176633e8b1e468d8e669544844fba020f4b846c4cbd35b3d087`. This is an unsigned preview; Windows physical input and two-machine runtime testing remain pending installation.
 
 ## Controlled first run
 
@@ -86,7 +86,7 @@ macOS input injection requires Accessibility permission. This repository does no
 
 ### No response while adding a device
 
-Both machines must run version 0.1.2 or newer. Version 0.1.0 has a known defect that prevents the Mac client from listening for discovery probes. Select **Server** on Windows and **Client** on the Mac. Enter the Mac address as `IP:47833`; this UDP port is used for discovery and pairing initiation. Authenticated QUIC normally uses the next port advertised by the client (`47834` by default), so do not enter it in the Add Device field. If 0.1.2 still does not answer, confirm that both devices are on the same LAN and that the macOS and Windows firewalls allow inbound UDP for MyKVM Local.
+Both machines must run version 0.1.3 or newer. Version 0.1.0 has a discovery-listener defect; version 0.1.2 can accept a pairing confirmation on the Mac and then close the QUIC connection before Windows receives its ACK, producing `connection lost`. Select **Server** on Windows and **Client** on the Mac. Enter the Mac address as `IP:47833`; this UDP port is used for discovery and pairing initiation. Authenticated QUIC normally uses the next port advertised by the client (`47834` by default), so do not enter it in the Add Device field.
 
 ## Documentation
 
@@ -98,6 +98,7 @@ Both machines must run version 0.1.2 or newer. Version 0.1.0 has a known defect 
 - [Windows preview pipeline](./docs/T23-windows-preview.md)
 - [Discovery and pairing response fix](./docs/T26-discovery-pairing-fix.md)
 - [QUIC warmup, permission, and RustDesk coexistence fix](./docs/T27-warmup-permission-rustdesk-fix.md)
+- [Pairing ACK and idle routing fix](./docs/T28-pairing-ack-idle-routing-fix.md)
 - [Resource validation procedure](./docs/T24-resource-validation.md)
 
 ## License and attribution
@@ -109,4 +110,4 @@ Copyright and attribution from the original project are retained. This fork is d
 
 Each unsigned preview build has a new ad-hoc code identity. After replacing the Mac app, remove the old MyKVM Local entry from Accessibility, add the copy in `/Applications` again, enable it, then quit and reopen the app. The old toggle can remain visually enabled while referring to the previous binary identity.
 
-While a MyKVM **Control Mac** session is active, MyKVM exclusively captures the Windows physical keyboard and mouse. Use **Return to Windows**, **Emergency return**, or pause MyKVM from the tray before using RustDesk. Version 0.1.2 also releases MyKVM clipboard ownership on return. Enable game mode while using RustDesk to disable accidental edge switching.
+While a MyKVM **Control Mac** session is active, MyKVM exclusively captures the Windows physical keyboard and mouse. Use **Return to Windows**, **Emergency return**, or pause MyKVM from the tray before using RustDesk. Version 0.1.3 resets input and clipboard routing to Windows whenever the controller runtime starts, and releases the clipboard target on return. Enable game mode while using RustDesk to disable accidental edge switching.

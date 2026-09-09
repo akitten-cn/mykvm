@@ -246,3 +246,13 @@ A43 为 `save_layout` 增加 2 MiB 总输入上限、枚举/设备数/屏幕尺�
 ## T27 QUIC 预热与 RustDesk 共存
 
 0.1.1 的认证空 QUIC 预热 datagram 被错误交给 motion 解码，产生 `InvalidLength` 并覆盖权限状态；修复 SHA `084a2b3e82f1b386c8bcd646d9a4361a31c6582e` 对空预热包静默处理，非空坏包仍拒绝。Windows 返回本地未清除剪贴板目标，修复 SHA `73990b1c2f2edf00e9ab71b1dc753eaf999d83f0` 改为同时释放。完整本机检查通过 227 个 Rust 库测试、24 个隔离测试；[Actions run 34353184370](https://github.com/akitten-cn/mykvm/actions/runs/34353184370) 的 macOS 14 与 Windows Server 2022 job 均通过。0.1.2 Windows NSIS SHA-256 为 `704fbdb6eca1bf4aad60d0cdaccefacd2b420368c97de7e1ab7169cc490af0fd`。真实双机与 RustDesk 切换待安装后复测。
+
+## T28 配对 ACK 与 Windows 空闲状态
+
+- 修复前新增测试 `accepted_untrusted_pairing_stream_delivers_ack_before_connection_close`：失败，退出码 101，错误与用户截图一致为 `failed to read QUIC stream ack: read error: connection lost`。
+- 修复后同一测试：1 passed，退出码 0。
+- 完整 Rust 库测试：228 passed，退出码 0；隔离测试：24 passed，退出码 0。
+- `scripts/check-native.mjs`：Node、Rust、隔离、lint、web build、核心格式、lib check、lib tests 全部退出码 0。
+- Mac ARM64 app：Mach-O arm64，版本 0.1.3；DMG 经 `hdiutil verify`，SHA-256 `be0c1c93747b68c52b2a61e98e98047da21dfeaf3aa44cee4dc0a64553660c72`。
+- Windows 原生构建：[Actions run 34357658307](https://github.com/akitten-cn/mykvm/actions/runs/34357658307) 通过；下载的 NSIS 与 CI 校验文件一致，SHA-256 `a50fe23e7f14d176633e8b1e468d8e669544844fba020f4b846c4cbd35b3d087`。
+- Windows/RustDesk/LOL 实机：`optional_not_run`，等待安装 0.1.3 后验证。

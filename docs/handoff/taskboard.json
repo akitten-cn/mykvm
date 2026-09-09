@@ -1681,6 +1681,51 @@
         "GitHub Actions run https://github.com/akitten-cn/mykvm/actions/runs/34353184370"
       ],
       "blocked_reason": null
+    },
+    {
+      "id": "T28",
+      "phase": "P4",
+      "title": "修复配对 ACK 连接关闭竞态与 Windows 空闲路由",
+      "depends_on": [
+        "T27"
+      ],
+      "paths": [
+        "src-tauri/src/quic_transport.rs",
+        "src-tauri/src/input.rs",
+        "docs/T28-pairing-ack-idle-routing-fix.md"
+      ],
+      "actions": [
+        "真实 QUIC 回环复现配对确认 ACK connection lost。",
+        "等待对端消费 ACK 后再关闭未认证配对连接。",
+        "Windows 控制运行时启动前强制恢复本机路由并清空剪贴板目标。"
+      ],
+      "test_ids": [],
+      "deliverables": [
+        "0.1.3 Mac DMG",
+        "0.1.3 Windows NSIS",
+        "配对与 RustDesk 回归说明"
+      ],
+      "review_focus": [
+        "配对完成后仍强制新建认证连接；空闲 Windows 不拦截其他远控工具；实机状态不由自动化推导。"
+      ],
+      "implementation": "done",
+      "review": "approved",
+      "verification": {
+        "automated": "pass",
+        "mac_build": "pass",
+        "mac_runtime": "observed_existing_app_only",
+        "windows_build": "pass",
+        "windows_runtime": "optional_not_run",
+        "lol_runtime": "optional_not_run"
+      },
+      "evidence": [
+        "../T28-pairing-ack-idle-routing-fix.md",
+        "pairing ACK fix SHA 221fd14a92715c13552eaed8dc5672af2a25e320",
+        "idle routing fix SHA 1d4a8e93fcf6dfa8ea8bbc3ee6bdf1de241a0663",
+        "build SHA c73efd374a3be124b1e278866cf366b5e911df4d",
+        "GitHub Actions run https://github.com/akitten-cn/mykvm/actions/runs/34357658307"
+      ],
+      "blocked_reason": null
     }
   ]
 }
