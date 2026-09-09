@@ -1262,24 +1262,9 @@ impl AppRuntime {
                     && session_runtime::receiver_mode_enabled(
                         &layout.machine_role,
                         &layout.input_mode,
-                    ),
+                ),
                 Ordering::Release,
             );
-            let transport = self.start_quic_transport(normalize_quic_port(
-                layout.transport_port,
-                layout.quic_port,
-            ))?;
-            if let Ok(mut stored_layout) = self.layout.lock() {
-                stored_layout.quic_port = transport.port();
-                for device in &mut stored_layout.devices {
-                    if device.role == "local" {
-                        device.quic_port = transport.port();
-                        device.transport_public_key = transport.public_key().to_string();
-                        device.protocol_version = quic_transport::PROTOCOL_VERSION;
-                    }
-                }
-            }
-            return Ok(());
         }
 
         let mut discovery_stop = self
@@ -2127,8 +2112,8 @@ fn ready_transport_status(discovery: &DiscoveryStatus) -> NativeStageStatus {
         return NativeStageStatus {
             state: "ready".into(),
             detail: format!(
-                "Authenticated V2 QUIC is ready on {}; legacy UDP discovery is disabled.",
-                discovery.local_peer.quic_port
+                "UDP discovery is ready on {}; authenticated V2 QUIC is ready on {}; legacy data paths remain disabled.",
+                discovery.port, discovery.local_peer.quic_port
             ),
         };
     }
@@ -10184,6 +10169,37 @@ mod tests {
             *ports.last().unwrap(),
             DISCOVERY_PORT + DISCOVERY_PORT_SPAN - 1
         );
+    }
+
+    #[test]
+    fn explicit_discovery_probe_receives_udp_peer_response() {
+        let responder = UdpSocket::bind("127.0.0.1:0").expect("bind discovery responder");
+        responder
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set responder timeout");
+        let responder_addr = responder.local_addr().expect("read responder address");
+        let expected_peer = test_peer();
+        let response_peer = expected_peer.clone();
+
+        let response = std::thread::spawn(move || {
+            let mut buffer = [0_u8; 4096];
+            let (length, source) = responder.recv_from(&mut buffer).expect("receive probe");
+            let packet = decode_discovery_packet(&buffer[..length]).expect("decode probe");
+            assert_eq!(packet.kind, "probe");
+            send_discovery_packet(&responder, "announce", &response_peer, source)
+                .expect("send discovery response");
+        });
+
+        let discovered = probe_for_peer(
+            &local_peer_from_layout(&test_layout()),
+            &responder_addr.to_string(),
+            DISCOVERY_PORT,
+        )
+        .expect("explicit UDP probe should receive a MyKVM response");
+
+        response.join().expect("join discovery responder");
+        assert_eq!(discovered.id, expected_peer.id);
+        assert_eq!(discovered.ip, "127.0.0.1");
     }
 
     #[test]

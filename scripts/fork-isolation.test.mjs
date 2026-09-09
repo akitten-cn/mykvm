@@ -154,10 +154,16 @@ test('A42: fork cannot automatically run the upstream release workflow', () => {
   }
 })
 
-test('T05.a: legacy LAN paths cannot activate before V2 authentication exists', () => {
+test('T05.a: legacy data stays blocked while V2 discovery remains reachable', () => {
   assert.match(read('src-tauri/src/fork_policy.rs'), /LEGACY_LAN_DATA_ENABLED: bool = false/)
   const lib = read('src-tauri/src/lib.rs')
-  for (const name of ['start_discovery', 'start_input', 'start_clipboard', 'handle_clipboard_packet',
+  const discoveryPrefix = lib.match(/fn start_discovery\([\s\S]*?let mut discovery_stop/)?.[0]
+  assert.ok(discoveryPrefix, 'discovery setup is present')
+  assert.match(discoveryPrefix, /input_receive_enabled\.store/)
+  assert.doesNotMatch(discoveryPrefix, /return Ok\(\(\)\)/,
+    'disabling legacy data must not return before binding the discovery socket')
+  assert.match(lib, /fn start_discovery\([\s\S]*?bind_available_udp_port\(desired_port\)/)
+  for (const name of ['start_input', 'start_clipboard', 'handle_clipboard_packet',
     'handle_file_transfer_packet', 'send_files_to_device']) {
     assert.match(lib, new RegExp(`fn ${name}\\([\\s\\S]*?\\{\\s*if !crate::fork_policy::LEGACY_LAN_DATA_ENABLED`))
   }
