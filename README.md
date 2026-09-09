@@ -1,200 +1,97 @@
-# MyKVM
+# MyKVM Local
 
-**One keyboard, one mouse, one clipboard — shared across your Mac, Windows, and Linux machines on the same LAN.**
+MyKVM Local is a security-focused fork of [XxMinor/mykvm](https://github.com/XxMinor/mykvm), based on upstream commit [`a2ea4164861de31b562c8417eeb7879dbc8c23cb`](https://github.com/XxMinor/mykvm/commit/a2ea4164861de31b562c8417eeb7879dbc8c23cb). It remains available under the upstream MIT license.
 
-Move your cursor off the edge of one screen and it lands on the next machine. Your keyboard follows, and the clipboard (text and images) syncs automatically. No KVM hardware, no cables.
+This fork targets one specific setup: a Windows PC supplies the physical keyboard and mouse, while an Apple Silicon Mac runs Codex, terminals, an IDE, and a browser. Each computer keeps its own directly connected display. MyKVM Local transfers input and optional clipboard data; it does not stream video.
 
-[![Download](https://img.shields.io/github/v/release/XxMinor/mykvm?label=Download&style=for-the-badge)](https://github.com/XxMinor/mykvm/releases/latest)
-[![Stars](https://img.shields.io/github/stars/XxMinor/mykvm?label=Stars&logo=github&style=for-the-badge)](https://github.com/XxMinor/mykvm/stargazers)
-[![Forks](https://img.shields.io/github/forks/XxMinor/mykvm?label=Forks&logo=github&style=for-the-badge)](https://github.com/XxMinor/mykvm/forks)
-[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-2786ff?style=for-the-badge)](https://github.com/XxMinor/mykvm/releases/latest)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](./LICENSE)
+[简体中文](./README.zh-CN.md) · [Upstream project](https://github.com/XxMinor/mykvm) · [Detailed delivery status](./docs/DELIVERY.md)
 
-[中文说明](./README.zh-CN.md)
+## Changes from upstream
 
-![MyKVM tour](docs/screenshots/tour.gif)
+- Added explicit **Control Mac**, **Return to Windows**, and **Emergency return** actions with configurable hotkeys.
+- Added a Windows local-game mode that disables edge switching and exits the Windows hook before layout, cursor, network, or logging work.
+- Replaced the legacy data path with a bounded V2 QUIC protocol for control, reliable input, and latest-wins pointer motion.
+- Bound inbound data to the certificate presented by the live TLS connection, the persisted paired peer, its role, session, process generation, and sequence number. Discovery cannot silently change trust.
+- Added session-owned key/button tracking and release on normal return, End, stream loss, lease expiry, faults, and emergency return.
+- Added explicit Mac modifier mapping. Windows Ctrl remains Mac Control by default; Windows keys map to Command, with an optional Ctrl/Command swap preset.
+- Added bidirectional, versioned text clipboard sync with exact echo suppression. Image sync is opt-in, pauses in local-game mode, and is protected by format checks and a global bulk-memory budget.
+- Moved the runtime out of the settings WebView. The settings window can be destroyed and reopened while the Rust background process continues.
+- Added Simplified Chinese settings and menu-bar actions, user-level opt-in autostart, single-instance activation, IPC validation, and redacted diagnostics.
+- Isolated the fork identity as `local.mykvm.gaming`; disabled upstream auto-update, privileged helper installation, SYSTEM services, automatic firewall changes, and upstream release automation.
+- Added fake-platform tests, authenticated local QUIC loopback tests, native Mac/Windows CI, unsigned preview packaging, checksums, and a passive resource sampler.
 
-## Screenshots
+## Current status
 
-| Display layout | Devices | Settings |
-| --- | --- | --- |
-| ![Layout](docs/screenshots/layout.png) | ![Devices](docs/screenshots/devices.png) | ![Settings](docs/screenshots/settings.png) |
+| Area | Status |
+| --- | --- |
+| Automated tests | 225 Rust tests and 23 isolation tests pass |
+| macOS build | ARM64 app and DMG generated and verified |
+| macOS runtime | Not run; no Accessibility/TCC changes were made |
+| Windows build | CI and NSIS script ready; native runner has not completed yet |
+| Windows physical input | Not run |
+| League of Legends | Optional and not run |
 
-## Quick Start
+The Mac artifact is an unsigned, unnotarized development preview. The source and automated path are ready for controlled testing, but this repository does not yet claim that Windows-to-Mac operation has passed physical two-machine testing.
 
-1. **Install on both machines.** Download the installer for each OS from the [latest release](https://github.com/XxMinor/mykvm/releases/latest).
-2. **Pick roles.** On the machine whose keyboard and mouse you want to share, open MyKVM and keep **Server** mode (the default). On the other machine, open MyKVM and switch to **Client** mode in Settings.
-3. **Connect.** On the same LAN the two find each other automatically. Otherwise open **Devices**, type the other machine's IP (optionally `IP:port`), and click **Add**. Only devices that report their screen info join the layout.
-4. **Arrange screens.** Open **Layout** and drag the monitors so their touching edges match how they sit on your desk.
-5. **Cross over.** Push the cursor past a shared edge — it moves to the other machine. The keyboard follows, and copy/paste works in both directions.
+## Safety and scope
 
-## Permissions
+- Input and optional clipboard only. No display capture, video transport, driver, game injection, privileged service, secure-desktop helper, or anti-cheat bypass.
+- Legacy LAN input/clipboard/file endpoints fail closed. V2 input is accepted only from a paired controller over an authenticated QUIC connection.
+- Text and images have independent limits. Raw images are capped at 32 MiB, encoded bulk frames at 48 MiB, and aggregate bulk working memory at 128 MiB.
+- Image clipboard sync defaults off. Autostart is also opt-in.
+- The project does not promise zero GPU use, universal game compatibility, or control of Windows secure desktops.
 
-- **macOS (server).** Grant MyKVM both **Accessibility** and **Input Monitoring** under System Settings → Privacy & Security. These are required to capture and inject keyboard/mouse input. Signed builds keep the grant across updates; if it ever drops, toggle it off and on.
-- **macOS first launch.** Builds are free self-signed (not Apple-notarized), so Gatekeeper warns the first time. Right-click the app → **Open** → **Open** to allow it once.
-- **Windows.** No special permission for normal use. Run as Administrator only if you need to control elevated/admin windows.
-- **Linux.** If you use the AppImage, mark it executable (`chmod +x`).
+## Build and test
 
-## Limitations
+Requirements:
 
-- **Trusted LAN only.** There is no user pairing/PIN yet, and LAN discovery is plaintext and unauthenticated. Do not expose the ports to public or untrusted networks.
-- Input and clipboard ride an **encrypted QUIC/TLS** connection pinned to the peer's advertised certificate, but MyKVM is a prototype and is not hardened for hostile networks.
-- The clipboard syncs **text and images**, not files.
-- macOS builds are **self-signed, not notarized** — expect a Gatekeeper prompt on first open.
-- Experimental software: the protocol and behavior may change between versions.
+- Node.js 22
+- Rust 1.98.1 for the recorded build
+- Xcode Command Line Tools on macOS
+- Visual Studio 2022 C++ Build Tools and WebView2 on Windows
 
----
-
-## Features
-
-- Runs in Server or Client mode.
-- Discovers nearby peers on the LAN.
-- Supports manual peer connection by host or IP.
-- Detects local displays and lets you arrange multi-monitor layouts.
-- Shares keyboard and mouse input over an encrypted QUIC connection.
-- Syncs clipboard text and images over the same encrypted connection.
-- Provides light, dark, and system theme modes.
-- Includes English and Simplified Chinese UI.
-- Supports tray behavior for hiding and restoring the main window.
-- Checks GitHub Releases and updates itself in place.
-
-## Current Status
-
-MyKVM is an experimental early release. It is useful for local testing and iteration, but it is not hardened for untrusted networks. See the [Releases page](https://github.com/XxMinor/mykvm/releases) for the current version and installers.
-
-- License: MIT
-- Default ports: UDP `47833` (discovery) and UDP `47834` (QUIC transport)
-- Clipboard payload caps: 256 KB text, 32 MB image
-- Transport security: input and clipboard run over a TLS 1.3 (QUIC) connection pinned to the peer's advertised certificate
-- Security model: trusted LAN prototype
-- Not yet included: user pairing/PIN, authenticated discovery, and production transport hardening
-
-Do not expose the transport ports to public or untrusted networks.
-
-## Protocol
-
-MyKVM runs two channels. LAN discovery uses a plain UDP port; input and clipboard run over an encrypted QUIC connection on a second UDP port.
-
-| Channel | Default port | Transport | Marker | Purpose |
-| --- | --- | --- | --- | --- |
-| Discovery | UDP `47833` | UDP datagrams | `mykvm.discovery.v1` | LAN discovery, peer probe/reply, host info, and display metadata |
-| Input | UDP `47834` | QUIC datagrams | `mykvm.input.v1` | Mouse movement, mouse buttons, scroll, and keyboard events (low latency, loss tolerant) |
-| Clipboard | UDP `47834` | QUIC streams | `mykvm.clipboard.v1` | Clipboard text and image sync (reliable, ordered) |
-
-The discovery port is configurable in Settings (default UDP `47833`); the QUIC transport port defaults to the discovery port + 1 (UDP `47834`). Both auto-fall-back through nearby ports if a port is taken, and can use a system-selected port if needed. Peers advertise their active discovery port, QUIC port, transport public key, and protocol version, so discovered and manually added devices connect to the right port and pin the right certificate.
-
-The QUIC connection is TLS 1.3 encrypted: each peer generates a self-signed certificate at startup and advertises it during discovery, and the connecting side pins that certificate, so input and clipboard traffic is encrypted and bound to the advertised peer. Discovery itself is still plaintext and unauthenticated, so keep MyKVM on a trusted LAN.
-
-## Requirements
-
-- Node.js 22+
-- Rust stable
-- Platform desktop toolchain:
-  - Windows: Microsoft C++ Build Tools
-  - macOS: Xcode Command Line Tools
-  - Linux: WebKitGTK and appindicator development packages
-
-## Development
-
-Install dependencies:
+Run the complete non-interactive checks without launching the desktop app:
 
 ```bash
-npm install
+npm ci
+node scripts/check-native.mjs
 ```
 
-Run the web UI:
+Build the unsigned Apple Silicon preview on macOS:
 
 ```bash
-npm run dev
+sh scripts/build-mac-arm.sh
+shasum -a 256 -c docs/PREVIEW_ARTIFACTS.sha256
 ```
 
-Run the Tauri desktop app:
-
-```bash
-npm run tauri:dev
-```
-
-Build without bundling installers:
-
-```bash
-npm run tauri:build
-```
-
-Build desktop bundles:
-
-```bash
-npm run tauri:bundle
-```
-
-## Platform Helpers
-
-Windows:
+Build the unsigned NSIS preview on native Windows:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\check-dev-env.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\run-tauri-dev.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows-preview.ps1
 ```
 
-macOS and Linux:
+The Windows output is written to `src-tauri\target\release\bundle\nsis\`, together with `SHA256SUMS`.
 
-```bash
-sh scripts/check-dev-env.sh
-sh scripts/run-tauri-dev.sh
-```
+## CI artifacts
 
-macOS input capture and injection require Accessibility and Input Monitoring permissions in System Settings.
+`.github/workflows/native-preview.yml` runs non-interactive checks on macOS 14 and Windows Server 2022. The Windows job also builds an unsigned NSIS installer and uploads it as `windows-preview-<commit SHA>` for seven days. The workflow has read-only repository permissions and does not create a GitHub Release.
 
-## Verification
+## Controlled first run
 
-Run these before opening a pull request or cutting a release:
+Do not replace an existing upstream installation. Verify the checksum and install this fork under its independent **MyKVM Local** name. The Mac should use the receiver role; the Windows machine should use the controller role. Pair both devices with the six-digit code, confirm the monitor layout and all three control hotkeys, then test on a normal desktop before enabling clipboard images, autostart, or any game scenario.
 
-```bash
-npm run build
-npm run lint
-cargo check --manifest-path src-tauri/Cargo.toml
-```
+macOS input injection requires Accessibility permission. This repository does not disable Gatekeeper or modify TCC automatically. See [the delivery guide](./docs/DELIVERY.md) for the current artifact paths, unverified items, and rollback steps.
 
-## Release
+## Documentation
 
-Git itself only stores and pushes source history. GitHub Actions does the actual packaging on GitHub-hosted runners.
+- [Implementation progress](./docs/PROGRESS.md)
+- [Test report](./docs/TEST_REPORT.md)
+- [Source and security audit](./docs/SOURCE_AUDIT.md)
+- [Task board](./docs/handoff/taskboard.json)
+- [Mac preview build evidence](./docs/T22-mac-preview.md)
+- [Windows preview pipeline](./docs/T23-windows-preview.md)
+- [Resource validation procedure](./docs/T24-resource-validation.md)
 
-The release workflow watches pushes to `main`:
+## License and attribution
 
-- `feat:` publishes the next minor version, such as `v0.1.0` to `v0.2.0`.
-- `fix:` publishes the next patch version, such as `v0.1.0` to `v0.1.1`.
-- Other prefixes run normal checks but do not publish a release.
-- If no release tag exists yet, the first `feat:` or `fix:` push publishes `v0.1.0`.
-
-Release notes come from the `## [Unreleased]` section of [CHANGELOG.md](./CHANGELOG.md) (user-facing wording), falling back to filtered commit subjects. Keep that section up to date as you land changes.
-
-Example:
-
-```bash
-git commit -m "feat: initial desktop release"
-git push origin main
-```
-
-The workflow creates the git tag, builds macOS, Windows, and Linux bundles, then publishes a GitHub Release with the generated installers.
-
-## Project Layout
-
-| Path | Purpose |
-| --- | --- |
-| `src/App.tsx` | Main React desktop console |
-| `src/desktopApi.ts` | Frontend bridge to Tauri commands |
-| `src/layout.ts` | Display layout transforms and adjacency logic |
-| `src/runtime.ts` | Runtime status types |
-| `src-tauri/src/lib.rs` | Tauri commands, UDP discovery, clipboard sync, app state, and performance sampling |
-| `src-tauri/src/input.rs` | Input capture, forwarding, and injection runtime |
-| `src-tauri/src/quic_transport.rs` | Encrypted QUIC transport (input datagrams, clipboard streams) with certificate pinning |
-| `scripts/` | Development and build helper scripts |
-
-## Contributing
-
-Issues and pull requests are welcome. Keep changes focused, document behavior that affects the protocol, and verify both the web build and the Tauri backend when touching shared runtime code.
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for commit prefixes and versioning notes.
-
-## License
-
-MIT. See [LICENSE](./LICENSE).
+Copyright and attribution from the original project are retained. This fork is derived from [XxMinor/mykvm](https://github.com/XxMinor/mykvm) and is distributed under the [MIT License](./LICENSE). MyKVM Local is an independent fork and is not presented as an official upstream release.

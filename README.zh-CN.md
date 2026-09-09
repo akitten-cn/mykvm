@@ -1,200 +1,92 @@
-# MyKVM
+# MyKVM Local
 
-**一套键盘、一只鼠标、一份剪贴板 —— 在同一局域网内的 Mac、Windows、Linux 之间共享。**
+MyKVM Local 基于开源项目 [XxMinor/mykvm](https://github.com/XxMinor/mykvm) 修改，开发基线是上游提交 [`a2ea4164861de31b562c8417eeb7879dbc8c23cb`](https://github.com/XxMinor/mykvm/commit/a2ea4164861de31b562c8417eeb7879dbc8c23cb)。本 fork 保留上游版权与 MIT 许可证。
 
-把光标移出一台屏幕的边缘，它就落到下一台机器上；键盘随之切换，剪贴板（文本和图片）自动同步。不需要 KVM 硬件，也不用插线。
+本 fork 面向一个明确场景：Windows 主机提供物理键盘和鼠标，Apple Silicon Mac 用于 Codex、终端、IDE 和浏览器。两台机器的显示器各自直连，只传键鼠输入和可选剪贴板，不传画面。
 
-[![下载](https://img.shields.io/github/v/release/XxMinor/mykvm?label=%E4%B8%8B%E8%BD%BD&style=for-the-badge)](https://github.com/XxMinor/mykvm/releases/latest)
-[![Stars](https://img.shields.io/github/stars/XxMinor/mykvm?label=Stars&logo=github&style=for-the-badge)](https://github.com/XxMinor/mykvm/stargazers)
-[![Forks](https://img.shields.io/github/forks/XxMinor/mykvm?label=Forks&logo=github&style=for-the-badge)](https://github.com/XxMinor/mykvm/forks)
-[![平台](https://img.shields.io/badge/平台-macOS%20%7C%20Windows%20%7C%20Linux-2786ff?style=for-the-badge)](https://github.com/XxMinor/mykvm/releases/latest)
-[![许可证: MIT](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](./LICENSE)
+[English](./README.md) · [上游项目](https://github.com/XxMinor/mykvm) · [完整交付状态](./docs/DELIVERY.md)
 
-[English README](./README.md)
+## 相对上游的主要修改
 
-![MyKVM 演示](docs/screenshots/tour.gif)
-
-## 截图
-
-| 显示器布局 | 连接设备 | 设置 |
-| --- | --- | --- |
-| ![布局](docs/screenshots/layout.png) | ![设备](docs/screenshots/devices.png) | ![设置](docs/screenshots/settings.png) |
-
-## 快速开始
-
-1. **两台机器都安装。** 从 [最新发布](https://github.com/XxMinor/mykvm/releases/latest) 下载各自系统的安装包。
-2. **选择角色。** 在要共享键鼠的那台机器上打开 MyKVM，保持 **服务端**（默认）。在另一台机器上打开 MyKVM，到设置里切换为 **客户端**。
-3. **建立连接。** 同一局域网下两台会自动发现。否则打开 **设备**，输入对方 IP（可加 `IP:端口`），点 **添加**。只有上报了屏幕信息的设备才会加入布局。
-4. **排列屏幕。** 打开 **布局**，拖动各显示器，让相邻边缘和它们在桌面上的实际位置一致。
-5. **跨屏切换。** 把光标推出相邻边缘，它就切到另一台机器；键盘随之跟随，复制粘贴双向可用。
-
-## 权限说明
-
-- **macOS（服务端）。** 在 系统设置 → 隐私与安全性 中给 MyKVM 同时授予 **辅助功能（Accessibility）** 和 **输入监控（Input Monitoring）**，这是捕获和注入键鼠输入所必需的。签名版本在更新后会保留授权；万一掉了，关掉再打开即可。
-- **macOS 首次打开。** 版本是免费自签名（未经过 Apple 公证），所以首次会被 Gatekeeper 拦。右键点应用 → **打开** → **打开** 放行一次即可。
-- **Windows。** 常规使用无需特殊权限。只有需要控制提权/管理员窗口时才以管理员身份运行。
-- **Linux。** 用 AppImage 的话，先给它加可执行权限（`chmod +x`）。
-
-## 已知限制
-
-- **仅限可信局域网。** 暂无用户配对/PIN，且局域网发现是明文、未认证。请勿把端口暴露到公网或不可信网络。
-- 输入和剪贴板走 **加密的 QUIC/TLS** 连接，并绑定对端广播的证书；但 MyKVM 仍是原型，未针对恶意网络做加固。
-- 剪贴板同步 **文本和图片**，不同步文件。
-- macOS 版本是 **自签名、未公证**，首次打开会有 Gatekeeper 提示。
-- 实验性软件：协议和行为可能在版本间变化。
-
----
-
-## 功能
-
-- 支持 Server / Client 两种工作模式。
-- 支持局域网设备发现。
-- 支持通过主机名或 IP 手动连接设备。
-- 支持本机显示器检测和多显示器布局编辑。
-- 通过加密的 QUIC 连接共享键盘和鼠标输入。
-- 通过同一条加密连接同步剪贴板的文本和图片。
-- 支持浅色、深色和跟随系统主题。
-- 支持英文和简体中文界面。
-- 支持托盘隐藏和恢复主窗口。
-- 支持检查 GitHub Release 并原地自动更新。
+- 增加明确的“控制 Mac”“返回 Windows”“紧急返回”动作和可配置热键。
+- 增加 Windows 本地游戏模式：关闭边缘切换，并在 Windows hook 最前段放行，不进入布局、光标、网络和日志重路径。
+- 以有界 V2 QUIC 协议替换旧数据入口，分别承载控制、可靠输入和 latest-wins 鼠标移动。
+- 入站数据绑定到当前 TLS 连接实际出示的证书、持久配对设备、角色、会话、进程代次和序号；发现广播不能静默修改信任。
+- 按会话记录按键、修饰键和鼠标按钮，在正常返回、End、断流、租约到期、故障和紧急返回时可靠释放。
+- 明确 Mac 修饰键规则：Windows Ctrl 默认仍是 Mac Control，Windows 键对应 Command；可选 Ctrl/Command 互换预设。
+- 增加双向、版本化文本剪贴板和精确回声抑制；图片同步默认关闭，游戏模式暂停，并受格式校验和全局 bulk 内存预算保护。
+- 后台运行由 Rust 持有，不依赖设置 WebView；设置窗口可以销毁和重新创建。
+- 增加简体中文设置与菜单栏、普通用户显式自启、单实例唤起、IPC 参数校验和诊断脱敏。
+- fork 身份改为 `local.mykvm.gaming`；禁用上游自动更新、特权 helper、SYSTEM 服务、自动防火墙修改和上游发布自动化。
+- 增加 FakeCapture/FakeInjector、认证 QUIC 本地回环、Mac/Windows 原生 CI、无签名预览打包、校验和与被动资源采样器。
 
 ## 当前状态
 
-MyKVM 是一个实验性的早期版本，适合在本地可信网络中测试和迭代，但还没有面向不可信网络做生产级加固。当前版本和安装包见 [Releases 页面](https://github.com/XxMinor/mykvm/releases)。
+|范围|状态|
+|---|---|
+|自动化测试|225 个 Rust 测试和 23 个隔离测试通过|
+|Mac 构建|ARM64 app 与 DMG 已生成并校验|
+|Mac 运行|未运行，没有修改辅助功能或 TCC|
+|Windows 构建|CI 与 NSIS 脚本已就绪，原生 runner 尚未完成|
+|Windows 物理键鼠|未运行|
+|LOL|可选，未运行|
 
-- 许可证：MIT
-- 默认端口：UDP `47833`（发现）和 UDP `47834`（QUIC 传输）
-- 剪贴板载荷上限：文本 256 KB，图片 32 MB
-- 传输安全：输入和剪贴板走 TLS 1.3（QUIC）连接，并绑定对端在发现阶段广播的证书
-- 安全模型：可信局域网原型
-- 暂未包含：用户配对/PIN、发现通道身份认证和生产级传输加固
+Mac 产物是未签名、未公证的开发预览。源码和自动化链路已具备受控试用条件，但目前不能宣称 Windows→Mac 双机物理测试已经通过。
 
-请不要把传输端口暴露到公网或不可信网络。
+## 安全范围
 
-## 协议
+- 只传输入和可选剪贴板；不包含显示捕获、视频传输、驱动、游戏注入、特权服务、安全桌面 helper 或反作弊规避。
+- 旧 LAN 输入、剪贴板和文件入口默认拒绝；只有已配对控制端的认证 QUIC 连接可以进入 V2 输入路径。
+- 文本与图片分别限流。原始图片上限 32 MiB、编码 bulk 帧上限 48 MiB、bulk 总工作内存预算 128 MiB。
+- 图片剪贴板默认关闭；登录自启也必须由用户显式开启。
+- 不承诺绝对零 GPU、所有游戏版本兼容或控制 Windows 安全桌面。
 
-MyKVM 使用两条通道：局域网发现走普通 UDP 端口；输入和剪贴板走另一个 UDP 端口上的加密 QUIC 连接。
+## 构建和测试
 
-| 通道 | 默认端口 | 传输方式 | 协议标记 | 用途 |
-| --- | --- | --- | --- | --- |
-| 发现 | UDP `47833` | UDP 数据报 | `mykvm.discovery.v1` | 局域网发现、设备探测/回应、主机信息和屏幕元数据 |
-| 输入 | UDP `47834` | QUIC datagram | `mykvm.input.v1` | 鼠标移动、鼠标按键、滚轮和键盘事件（低延迟、容忍丢包） |
-| 剪贴板 | UDP `47834` | QUIC stream | `mykvm.clipboard.v1` | 剪贴板文本和图片同步（可靠、有序） |
+环境要求：Node.js 22、记录构建使用的 Rust 1.98.1；Mac 需要 Xcode Command Line Tools，Windows 需要 Visual Studio 2022 C++ Build Tools 和 WebView2。
 
-发现端口可以在设置中固定（默认 UDP `47833`）；QUIC 传输端口默认取发现端口 + 1（UDP `47834`）。两者在端口被占用时都会向附近端口自动回退，必要时交给系统分配端口。设备会广播自己的发现端口、QUIC 端口、传输公钥和协议版本，因此局域网发现和手动添加都能连到正确端口并绑定正确的证书。
-
-QUIC 连接使用 TLS 1.3 加密：每个端在启动时生成一张自签名证书并在发现阶段广播，连接方会 pin 住这张证书，因此输入和剪贴板流量是加密的、且只绑定到广播该证书的对端。发现通道本身仍是明文且未认证，因此请把 MyKVM 保持在可信局域网内使用。
-
-## 环境要求
-
-- Node.js 22+
-- Rust stable
-- 平台桌面工具链：
-  - Windows：Microsoft C++ Build Tools
-  - macOS：Xcode Command Line Tools
-  - Linux：WebKitGTK 和 appindicator 开发包
-
-## 开发
-
-安装依赖：
+不启动桌面应用的完整检查：
 
 ```bash
-npm install
+npm ci
+node scripts/check-native.mjs
 ```
 
-运行 Web UI：
+在 Apple Silicon Mac 构建无签名预览：
 
 ```bash
-npm run dev
+sh scripts/build-mac-arm.sh
+shasum -a 256 -c docs/PREVIEW_ARTIFACTS.sha256
 ```
 
-运行 Tauri 桌面端：
-
-```bash
-npm run tauri:dev
-```
-
-构建但不打安装包：
-
-```bash
-npm run tauri:build
-```
-
-构建桌面安装包：
-
-```bash
-npm run tauri:bundle
-```
-
-## 平台辅助脚本
-
-Windows：
+在原生 Windows 构建无签名 NSIS：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\check-dev-env.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\run-tauri-dev.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows-preview.ps1
 ```
 
-macOS 和 Linux：
+Windows 产物写入 `src-tauri\target\release\bundle\nsis\`，同目录生成 `SHA256SUMS`。
 
-```bash
-sh scripts/check-dev-env.sh
-sh scripts/run-tauri-dev.sh
-```
+## CI 产物
 
-macOS 的输入捕获和注入需要在系统设置中授权 Accessibility 和 Input Monitoring。
+`.github/workflows/native-preview.yml` 在 macOS 14 与 Windows Server 2022 上运行非交互检查。Windows job 还会构建无签名 NSIS，并把它以 `windows-preview-<提交 SHA>` 名称保留 7 天。工作流只有仓库只读权限，不创建 GitHub Release。
 
-## 验证
+## 首次受控试用
 
-提交 PR 或发布版本前建议运行：
+不要覆盖已有上游安装。先核对校验和，再以独立的 **MyKVM Local** 名称安装。Mac 选择接收角色，Windows 选择控制角色；双方使用六位验证码配对，核对显示器布局和三个控制热键。先在普通桌面验证控制、返回、紧急返回和全部按键释放，再考虑图片剪贴板、自启或游戏场景。
 
-```bash
-npm run build
-npm run lint
-cargo check --manifest-path src-tauri/Cargo.toml
-```
+Mac 注入输入需要辅助功能权限。本仓库不会自动关闭 Gatekeeper 或修改 TCC。当前产物路径、未验证项和回滚步骤见 [交付说明](./docs/DELIVERY.md)。
 
-## 发布
+## 文档
 
-Git 本身只负责保存源码历史和推送提交。真正的打包、编译和生成安装包由 GitHub Actions 在 GitHub runner 上完成。
+- [实施进度](./docs/PROGRESS.md)
+- [测试报告](./docs/TEST_REPORT.md)
+- [源码与安全核验](./docs/SOURCE_AUDIT.md)
+- [任务板](./docs/handoff/taskboard.json)
+- [Mac 预览构建证据](./docs/T22-mac-preview.md)
+- [Windows 预览流水线](./docs/T23-windows-preview.md)
+- [资源验证方法](./docs/T24-resource-validation.md)
 
-Release 工作流会监听 `main` 分支推送：
+## 许可证与署名
 
-- `feat:` 发布下一个 minor 版本，例如 `v0.1.0` 到 `v0.2.0`。
-- `fix:` 发布下一个 patch 版本，例如 `v0.1.0` 到 `v0.1.1`。
-- 其他前缀只运行常规检查，不发布版本。
-- 如果仓库还没有任何 release tag，第一个 `feat:` 或 `fix:` 推送会发布 `v0.1.0`。
-
-Release 说明取自 [CHANGELOG.md](./CHANGELOG.md) 的 `## [Unreleased]` 段落（面向用户的措辞），没有则回退到过滤后的提交标题。改动落地时记得同步更新该段落。
-
-示例：
-
-```bash
-git commit -m "feat: initial desktop release"
-git push origin main
-```
-
-工作流会自动创建 git tag，构建 macOS、Windows 和 Linux 安装包，然后发布到 GitHub Release。
-
-## 项目结构
-
-| 路径 | 用途 |
-| --- | --- |
-| `src/App.tsx` | React 桌面控制台主界面 |
-| `src/desktopApi.ts` | 前端到 Tauri 命令的桥接层 |
-| `src/layout.ts` | 显示器布局变换和邻接逻辑 |
-| `src/runtime.ts` | 运行时状态类型 |
-| `src-tauri/src/lib.rs` | Tauri 命令、UDP 设备发现、剪贴板同步、应用状态和性能采样 |
-| `src-tauri/src/input.rs` | 输入捕获、转发和注入运行时 |
-| `src-tauri/src/quic_transport.rs` | 加密 QUIC 传输（输入 datagram、剪贴板 stream），带证书 pin |
-| `scripts/` | 开发和构建辅助脚本 |
-
-## 贡献
-
-欢迎提交 issue 和 pull request。改动请保持聚焦；如果影响协议行为，请在文档中说明；如果触及共享运行时代码，请同时验证 Web 构建和 Tauri 后端。
-
-提交前缀和版本规则见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
-
-## 许可证
-
-MIT。见 [LICENSE](./LICENSE)。
+本项目保留原项目的版权与署名，派生自 [XxMinor/mykvm](https://github.com/XxMinor/mykvm)，按 [MIT License](./LICENSE) 发布。MyKVM Local 是独立 fork，不代表上游官方版本。
